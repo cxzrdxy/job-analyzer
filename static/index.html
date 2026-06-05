@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>求职分析智能体 · 分析台</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,500;0,6..72,700;1,6..72,400&display=swap"
+  rel="stylesheet"
+/>
+<link rel="stylesheet" href="/static/app.css?v=2" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="scan" aria-hidden="true"></div>
+
+  <header class="top">
+    <div class="top-left">
+      <span class="ticker">JOB_ANALYZER</span>
+      <span class="dim">/</span>
+      <span class="section-name">analysis bench</span>
+    </div>
+    <nav class="top-nav">
+      <a class="active" href="/app">工作台</a>
+      <a href="/">服务台</a>
+      <a href="/docs" target="_blank" rel="noopener">API 文档</a>
+    </nav>
+    <div class="top-right">
+      <span class="live"><span class="dot"></span>LIVE</span>
+      <span class="ts" id="ts">--:--:--</span>
+    </div>
+  </header>
+
+  <main class="bench">
+    <!-- ============ 左侧:投递 ============ -->
+    <section class="col col-left">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="title">// 投递</span>
+          <span class="meta">submit intake</span>
+        </div>
+        <form id="intake" class="intake" autocomplete="off">
+          <label class="field">
+            <span class="lbl">候选简历 · 附件</span>
+            <div class="drop" id="drop">
+              <input type="file" id="resume" name="resume"
+                     accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden />
+              <div class="drop-inner">
+                <div class="drop-ico" aria-hidden="true">↑</div>
+                <div class="drop-title">拖入 PDF / DOCX / TXT</div>
+                <div class="drop-sub" id="dropSub">或点击此处选择文件 · 最大 20MB</div>
+              </div>
+            </div>
+          </label>
+
+          <label class="field">
+            <span class="lbl">岗位 JD · 文本</span>
+            <textarea id="jd" name="job_description" rows="9"
+              placeholder="把岗位描述粘贴到这里…&#10;例如:3 年以上 Python 后端经验,熟悉 FastAPI / LangChain / 分布式缓存,有大模型应用落地经验者优先"></textarea>
+            <span class="hint" id="jdHint">0 字符 · 推荐 200-2000 字</span>
+          </label>
+
+          <div class="actions">
+            <button type="button" class="btn ghost" id="loadSample">载入示例</button>
+            <button type="submit" class="btn primary" id="runBtn">
+              <span class="run-label">开始分析</span>
+              <span class="run-run" hidden>分析中…</span>
+              <span class="kbd">⌘ ⏎</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span class="title">// 通讯</span>
+          <span class="meta">service channel</span>
+        </div>
+        <ul class="meta-list" id="svcMeta">
+          <li><span class="k">provider</span><span class="v" data-k="provider">—</span></li>
+          <li><span class="k">model</span><span class="v" data-k="model">—</span></li>
+          <li><span class="k">version</span><span class="v" data-k="version">—</span></li>
+          <li><span class="k">endpoints</span><span class="v mono">POST /api/v1/analyze</span></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ============ 中间:诊断单 ============ -->
+    <section class="col col-main">
+      <!-- 占位:还没跑过 -->
+      <div class="empty" id="empty">
+        <div class="empty-art" aria-hidden="true">
+          <pre>
+   ╔══════════════════════════════════════╗
+   ║   待  分  析  ·  pending intake     ║
+   ║                                      ║
+   ║   提交简历 + 岗位 JD 即可生成报告    ║
+   ╚══════════════════════════════════════╝
+          </pre>
+        </div>
+        <div class="empty-tip">
+          按 <span class="kbd">⌘ ⏎</span> 或点击「开始分析」启动流程 ·
+          LLM 后端会在分析时调用 <code>deepseek-v4-flash</code>
+        </div>
+      </div>
+
+      <!-- 运行态视图(分析进行中) -->
+      <section class="run-view" id="runView" hidden>
+        <div class="run-header">
+          <span class="run-title">ANALYZING</span>
+          <span class="run-timer" id="runTimer">0.0s</span>
+        </div>
+
+        <!-- 进度条 -->
+        <div class="run-bar-track">
+          <div class="run-bar-fill" id="runBarFill"></div>
+        </div>
+
+        <!-- 步骤列表 -->
+        <ul class="run-steps" id="runSteps">
+          <li data-stage="upload"><span class="step-dot"></span><span class="step-lbl">接收并解析文件</span></li>
+          <li data-stage="parse_resume"><span class="step-dot"></span><span class="step-lbl">解析简历结构</span></li>
+          <li data-stage="parse_job"><span class="step-dot"></span><span class="step-lbl">解析岗位要求</span></li>
+          <li data-stage="skill_gap"><span class="step-dot"></span><span class="step-lbl">匹配技能差距</span></li>
+          <li data-stage="experience"><span class="step-dot"></span><span class="step-lbl">评估经验匹配</span></li>
+          <li data-stage="keywords"><span class="step-dot"></span><span class="step-lbl">比对关键词</span></li>
+          <li data-stage="aggregate"><span class="step-dot"></span><span class="step-lbl">汇总诊断报告</span></li>
+          <li data-stage="suggestions"><span class="step-dot"></span><span class="step-lbl">生成优化建议</span></li>
+        </ul>
+
+        <!-- 当前阶段描述 -->
+        <div class="run-status" id="runStatus">
+          <span class="status-icon">&#9203;</span>
+          <span class="status-msg" id="runMsg">准备中…</span>
+        </div>
+
+        <!-- 错误态 -->
+        <div class="run-error" id="runError" hidden>
+          <span class="error-icon">&#10007;</span>
+          <div class="error-body">
+            <strong>分析失败</strong>
+            <p id="runErrorMsg"></p>
+            <code id="runErrorStage"></code>
+          </div>
+        </div>
+      </section>
+
+      <!-- 跑完后渲染到这里 -->
+      <article class="report" id="report" hidden>
+        <!-- 报头 -->
+        <header class="report-head">
+          <div class="head-left">
+            <div class="kicker">DIAGNOSTIC REPORT · 分析单</div>
+            <h1 class="headline" id="r_position">岗位匹配诊断</h1>
+            <div class="byline">
+              <span>样本 ID</span>
+              <code id="r_trace">—</code>
+              <span class="dim">·</span>
+              <span id="r_time">—</span>
+            </div>
+          </div>
+          <div class="head-right">
+            <div class="score-ring" id="scoreRing" data-score="0">
+              <svg viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">
+                <circle cx="60" cy="60" r="52" class="ring-bg" />
+                <circle cx="60" cy="60" r="52" class="ring-fg" id="ringFg"
+                        stroke-dasharray="326.7" stroke-dashoffset="326.7" />
+              </svg>
+              <div class="score-text">
+                <div class="num" id="r_score">0</div>
+                <div class="lbl">综合分</div>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <!-- 第一屏 · 摘要 -->
+        <section class="sec sec-summary">
+          <div class="sec-head">
+            <span class="sec-num">01</span>
+            <h2>综合判定</h2>
+            <span class="sec-rule"></span>
+          </div>
+          <div class="verdict" id="r_verdict">—</div>
+          <div class="stat-grid" id="r_stats">
+            <!-- JS 注入 -->
+          </div>
+        </section>
+
+        <!-- 第二屏 · 技能 -->
+        <section class="sec">
+          <div class="sec-head">
+            <span class="sec-num">02</span>
+            <h2>技能匹配</h2>
+            <span class="sec-meta" id="r_skill_cov">coverage —</span>
+          </div>
+          <div class="grid-2">
+            <div class="block">
+              <h3 class="block-title">已命中 <span class="ok" id="r_skill_matched">0</span></h3>
+              <ul class="chips" id="r_skill_matched_list"></ul>
+            </div>
+            <div class="block">
+              <h3 class="block-title">缺失 <span class="bad" id="r_skill_missing">0</span></h3>
+              <ul class="chips bad" id="r_skill_missing_list"></ul>
+            </div>
+            <div class="block">
+              <h3 class="block-title">部分命中 <span class="warn" id="r_skill_partial">0</span></h3>
+              <ul class="chips warn" id="r_skill_partial_list"></ul>
+            </div>
+            <div class="block">
+              <h3 class="block-title">硬性要求差距 <span class="bad" id="r_hard_gaps_n">0</span></h3>
+              <ul class="bullets" id="r_hard_gaps"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 第三屏 · 经验 -->
+        <section class="sec">
+          <div class="sec-head">
+            <span class="sec-num">03</span>
+            <h2>经验匹配</h2>
+            <span class="sec-meta" id="r_exp_score">score —</span>
+          </div>
+          <div class="exp-grid">
+            <div class="exp-cell">
+              <div class="k">要求年限</div>
+              <div class="v" id="r_exp_required">—</div>
+            </div>
+            <div class="exp-cell">
+              <div class="k">估算年限</div>
+              <div class="v" id="r_exp_estimated">—</div>
+            </div>
+            <div class="exp-cell">
+              <div class="k">匹配行业</div>
+              <div class="v" id="r_exp_industries">—</div>
+            </div>
+            <div class="exp-cell">
+              <div class="k">相关角色</div>
+              <div class="v" id="r_exp_roles">—</div>
+            </div>
+            <div class="exp-cell wide">
+              <div class="k">备注</div>
+              <ul class="bullets compact" id="r_exp_notes"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 第四屏 · 关键词 -->
+        <section class="sec">
+          <div class="sec-head">
+            <span class="sec-num">04</span>
+            <h2>关键词</h2>
+            <span class="sec-meta" id="r_kw_cov">coverage —</span>
+          </div>
+          <div class="grid-2">
+            <div class="block">
+              <h3 class="block-title">已覆盖 <span class="ok" id="r_kw_matched_n">0</span></h3>
+              <ul class="chips" id="r_kw_matched"></ul>
+            </div>
+            <div class="block">
+              <h3 class="block-title">未覆盖 <span class="bad" id="r_kw_missing_n">0</span></h3>
+              <ul class="chips bad" id="r_kw_missing"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- 第五屏 · 建议 -->
+        <section class="sec">
+          <div class="sec-head">
+            <span class="sec-num">05</span>
+            <h2>简历修改建议</h2>
+            <span class="sec-meta" id="r_sug_n">0 条</span>
+          </div>
+          <ol class="suggestions" id="r_suggestions"></ol>
+        </section>
+
+        <!-- 报尾 -->
+        <footer class="report-foot">
+          <span>report generated by job-analyzer</span>
+          <span class="dim">·</span>
+          <span id="r_provider">—</span>
+          <span class="dim">·</span>
+          <span id="r_model">—</span>
+        </footer>
+      </article>
+    </section>
+  </main>
+
+  <!-- 全局 toast -->
+  <div class="toast" id="toast" hidden>
+    <span class="t-dot"></span>
+    <span class="t-msg"></span>
+  </div>
+
+  <script src="/static/app.js?v=2"></script>
+</body>
+</html>

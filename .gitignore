@@ -1,0 +1,47 @@
+# ---- 敏感信息 ----
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+secrets.*
+
+# ---- 虚拟环境 ----
+.venv/
+venv/
+env/
+
+# ---- Python 缓存 ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- 上传/临时文件 ----
+uploads/
+tmp/
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---- 日志(根目录的 .log 也要忽略) ----
+logs/
+*.log
+
+# ---- 测试产物 ----
+verify_output.txt
+test_resume.txt
+test_big.txt
+
+# ---- IDE / 编辑器 ----
+.idea/
+.vscode/
+*.iml
+
+# ---- AI IDE 工作目录 ----
+.trae/

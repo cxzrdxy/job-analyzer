@@ -1,0 +1,195 @@
+"""流式分析进度定义(单一事实源).
+
+前后端共用:
+- STAGES: 阶段表,定义 8 个分析阶段的 key / label / percent 区间
+- ProgressEvent: NDJSON 行格式 TypedDict
+- stage_by_node(): LangGraph 节点名 → StageDef 映射
+"""
+from __future__ import annotations
+
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Any, Callable, Optional
+
+
+# ---- 进度回调上下文变量 ----
+# 流式分析期间,通过此 ContextVar 把 callback 传递给 LLMClient
+# 节点函数零改动:LLMClient() 构造时自动从上下文取 callback
+_progress_cv: ContextVar[Optional[Callable[[str, dict[str, Any]], None]]] = ContextVar(
+    "progress_callback", default=None
+)
+
+
+def get_progress_callback() -> Optional[Callable[[str, dict[str, Any]], None]]:
+    """获取当前上下文的进度回调."""
+    return _progress_cv.get()
+
+
+def set_progress_callback(cb: Optional[Callable[[str, dict[str, Any]], None]]) -> Any:
+    """设置当前上下文的进度回调,返回 Token 用于还原."""
+    return _progress_cv.set(cb)
+
+
+# ---- 当前阶段上下文变量 ----
+# 流式分析期间,记录当前正在执行的阶段,供回调计算 percent 使用
+_current_stage_cv: ContextVar[Optional["StageDef"]] = ContextVar(
+    "current_stage", default=None
+)
+
+
+def get_current_stage() -> Optional["StageDef"]:
+    """获取当前正在执行的分析阶段."""
+    return _current_stage_cv.get()
+
+
+def set_current_stage(stage: Optional["StageDef"]) -> Any:
+    """设置当前正在执行的分析阶段."""
+    return _current_stage_cv.set(stage)
+
+
+@dataclass(frozen=True)
+class StageDef:
+    """单个阶段定义."""
+
+    index: int
+    key: str
+    label: str
+    percent_start: float
+    percent_end: float
+    is_llm: bool
+
+    @property
+    def span(self) -> tuple[float, float]:
+        return (self.percent_start, self.percent_end)
+
+    @property
+    def quarter(self) -> float:
+        """区间 1/4 处(stage_start 默认 percent)."""
+        return self.percent_start + (self.percent_end - self.percent_start) * 0.25
+
+    @property
+    def half(self) -> float:
+        """区间 1/2 处(first_token 默认 percent)."""
+        return self.percent_start + (self.percent_end - self.percent_start) * 0.5
+
+
+# ---- 阶段表(与文档 §3.2 一致) ----
+STAGES: tuple[StageDef, ...] = (
+    StageDef(0, "upload", "接收并解析文件", 0, 5, False),
+    StageDef(1, "parse_resume", "解析简历结构", 5, 20, True),
+    StageDef(2, "parse_job", "解析岗位要求", 20, 35, True),
+    StageDef(3, "skill_gap", "匹配技能差距", 35, 65, True),
+    StageDef(4, "experience", "评估经验匹配", 65, 78, False),
+    StageDef(5, "keywords", "比对关键词", 78, 88, False),
+    StageDef(6, "aggregate", "汇总诊断报告", 88, 92, False),
+    StageDef(7, "suggestions", "生成优化建议", 92, 99, True),
+)
+
+# LangGraph 节点名 → StageDef 索引映射
+_NODE_TO_STAGE_KEY: dict[str, str] = {
+    "parse_resume": "parse_resume",
+    "parse_job": "parse_job",
+    "skill_gap": "skill_gap",
+    "experience": "experience",
+    "keywords": "keywords",
+    "aggregate_report": "aggregate",
+    "generate_suggestions": "suggestions",
+}
+
+
+def stage_by_node(node_name: str) -> Optional[StageDef]:
+    """根据 LangGraph 节点名返回对应的 StageDef."""
+    key = _NODE_TO_STAGE_KEY.get(node_name)
+    if key is None:
+        return None
+    for s in STAGES:
+        if s.key == key:
+            return s
+    return None
+
+
+def stage_by_key(key: str) -> Optional[StageDef]:
+    """根据阶段 key 返回 StageDef."""
+    for s in STAGES:
+        if s.key == key:
+            return s
+    return None
+
+
+# ---- NDJSON 事件类型(TypedDict 风格,用于文档和类型提示) ----
+# 实际使用时直接构造 dict 即可,不强制类型检查
+
+
+def make_meta_event(trace_id: str) -> dict[str, Any]:
+    """构建 meta 事件行."""
+    return {
+        "type": "meta",
+        "trace_id": trace_id,
+        "stages": [
+            {"index": s.index, "key": s.key, "label": s.label, "span": [s.percent_start, s.percent_end]}
+            for s in STAGES
+        ],
+    }
+
+
+def make_stage_start_event(stage: StageDef) -> dict[str, Any]:
+    """构建 stage_start 事件行."""
+    return {
+        "type": "stage_start",
+        "index": stage.index,
+        "key": stage.key,
+        "label": stage.label,
+        "percent": stage.quarter if stage.is_llm else ((stage.percent_start + stage.percent_end) / 2),
+    }
+
+
+def make_progress_event(
+    stage: StageDef,
+    percent: float,
+    message: str = "",
+    chars: int = 0,
+) -> dict[str, Any]:
+    """构建 progress 事件行(percent 在阶段区间内线性插值)."""
+    clamped = max(stage.percent_start, min(percent, stage.percent_end))
+    evt: dict[str, Any] = {
+        "type": "progress",
+        "index": stage.index,
+        "percent": round(clamped, 1),
+    }
+    if message:
+        evt["message"] = message
+    if chars:
+        evt["chars"] = chars
+    return evt
+
+
+def make_stage_end_event(stage: StageDef) -> dict[str, Any]:
+    """构建 stage_end 事件行."""
+    return {
+        "type": "stage_end",
+        "index": stage.index,
+        "key": stage.key,
+    }
+
+
+def make_done_event(data: dict[str, Any], duration_ms: float) -> dict[str, Any]:
+    """构建 done 事件行."""
+    return {
+        "type": "done",
+        "data": data,
+        "duration_ms": round(duration_ms, 0),
+    }
+
+
+def make_error_event(
+    stage_key: str,
+    code: str,
+    message: str,
+) -> dict[str, Any]:
+    """构建 error 事件行."""
+    return {
+        "type": "error",
+        "stage": stage_key,
+        "code": code,
+        "message": message,
+    }

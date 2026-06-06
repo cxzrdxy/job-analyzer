@@ -88,7 +88,7 @@ async def analyze_resume(
         if job_description and job_bytes is not None:
             raise HTTPException(status_code=400, detail="job_description 和 job_file 只能二选一")
 
-        result = get_service().analyze(
+        result = await get_service().analyze(
             resume_bytes=resume_bytes,
             resume_suffix=Path(resume.filename or "resume.pdf").suffix,
             job_text=job_description,

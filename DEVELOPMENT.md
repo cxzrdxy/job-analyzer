@@ -19,6 +19,9 @@
   - [4.4 技能匹配器升级:字面 → LLM 语义](#44-技能匹配器升级字面--llm-语义)
   - [4.5 前端交互修复](#45-前端交互修复)
   - [4.6 端到端测试发现的 5 个关联 bug](#46-端到端测试发现的-5-个关联-bug)
+  - [4.7 LangGraph 并行匹配:fan-out/fan-in](#47-langgraph-并行匹配fan-outfan-in)
+  - [4.8 流式进度推送:token 级实时进度](#48-流式进度推送token-级实时进度)
+  - [4.9 并行抽取:parse_resume / parse_job 并行化](#49-并行抽取parse_resume--parse_job-并行化)
 - [5. 验证清单](#5-验证清单)
 - [6. 风险、回滚与安全](#6-风险回滚与安全)
 - [7. GitHub 发布说明](#7-github-发布说明)
@@ -62,6 +65,9 @@
 | 11 | Bug 修复:CSS `display: flex` 覆盖 HTML `hidden` 属性 | `static/app.css`、`static/index.html` | ✅ |
 | 12 | Bug 修复:`LLMClient._progress_callback` 未初始化 | `app/extractors/llm_client.py` | ✅ |
 | 13 | Bug 修复:langgraph 0.2.x `astream()` 不发 `__end__` 导致 `done` 事件空数据 | `app/services/analyzer.py` | ✅ |
+| 14 | LangGraph 并行匹配:Send fan-out/fan-in 替代顺序边 | `app/workflow/graph.py`、`app/services/analyzer.py`、`app/api/routes.py` | ✅ |
+| 15 | 流式进度推送:token 级实时进度 + 线程安全桥接 | `app/workflow/progress.py`、`app/extractors/llm_client.py`、`app/workflow/graph.py`、`app/services/analyzer.py` | ✅ |
+| 16 | 并行抽取:parse_resume / parse_job 从 START 并行扇出 | `app/workflow/graph.py`、`static/app.js`、`static/app.css` | ✅ |
 
 **业务代码改动**:
 - 后端:4 个文件 — `app/api/routes.py`、`app/matchers/skill_matcher.py`、`app/extractors/llm_client.py`、`app/services/analyzer.py` + 1 个节点注入 `app/workflow/nodes.py`
@@ -525,6 +531,304 @@ else:
 
 ---
 
+### 4.7 LangGraph 并行匹配:fan-out/fan-in
+
+#### 背景
+
+原 `graph.py` 中 `parse_job` 到三个匹配节点声明了三条 `add_edge`:
+
+```python
+workflow.add_edge("parse_job", "skill_gap")
+workflow.add_edge("parse_job", "experience")
+workflow.add_edge("parse_job", "keywords")
+```
+
+LangGraph 0.2 的 `StateGraph` 对同一节点多条出边是**顺序执行**的,并非并行。三个匹配节点(尤其是 `skill_gap` 需要调 LLM)串行跑,总耗时是三者之和。
+
+#### 方案
+
+使用 LangGraph 的 `Send` 原语实现 fan-out/fan-in 模式:
+
+```python
+from langgraph.types import Send
+
+_PARALLEL_MATCHERS = ["skill_gap", "experience", "keywords"]
+
+def _route_to_matchers(state: AgentState) -> list[Send]:
+    """fan-out: 将状态分发到三个匹配节点并行执行."""
+    return [Send(node, state) for node in _PARALLEL_MATCHERS]
+
+# 用条件边替代三条普通边
+workflow.add_conditional_edges("parse_job", _route_to_matchers)
+```
+
+`Send` 是 LangGraph 的 fan-out 原语:当路由函数返回多个 `Send` 对象时,LangGraph 会将目标节点作为独立分支并行调度。三个分支各自写入不同的 state key(`skill_gap_partial`、`experience_match_partial`、`keyword_match_partial`),在 fan-in 节点 `aggregate_report` 处等待全部完成后合并状态再继续执行。
+
+#### 同步接口适配
+
+`analyze()` 方法改为 `async def` + `ainvoke()`,使同步 API 也能通过 asyncio 事件循环并行执行三个匹配节点:
+
+```python
+# analyzer.py
+async def analyze(self, ...) -> dict:
+    final = await self._get_workflow().ainvoke(initial)
+
+# routes.py
+result = await get_service().analyze(...)
+```
+
+#### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `app/workflow/graph.py` | 引入 `Send` + `_route_to_matchers` + `add_conditional_edges` |
+| `app/services/analyzer.py` | `analyze()` → `async def` + `ainvoke()` |
+| `app/api/routes.py` | `get_service().analyze(...)` → `await get_service().analyze(...)` |
+
+#### 效果
+
+| 指标 | 改造前(顺序) | 改造后(并行) |
+|---|---|---|
+| skill_gap + experience + keywords 总耗时 | 三者之和 | 取最长者 |
+| 理论加速比 | 1× | ~2-3×(取决于 LLM 调用占比) |
+
+---
+
+### 4.8 流式进度推送:token 级实时进度
+
+#### 背景
+
+原实现中,LLM 流式输出的 token 级进度回调**只写日志**,未推送到前端。前端只能感知 `stage_start` / `stage_end`,中间是黑盒等待。
+
+根因有两个:
+
+1. **ContextVar 不跨线程传播**:LangGraph `astream()` 在线程池中执行同步节点,`LLMClient()` 在工作线程中构造时读不到主线程设置的 ContextVar,回调为 `None`
+2. **同步回调无法 yield**:即使回调被调用,也无法从 async generator 中 yield NDJSON 行
+
+#### 方案:asyncio.Queue + 后台任务 + 线程安全共享变量
+
+```
+之前:  LLM streaming → callback → 仅写日志
+之后:  LLM streaming → callback → loop.call_soon_threadsafe → queue.put → 主生成器 yield NDJSON
+```
+
+##### 4.8.1 线程安全基础设施(`progress.py`)
+
+LangGraph 在线程池中执行同步节点,ContextVar 不会传播到工作线程。因此用模块级变量 + `threading.Lock` 作为跨线程通信机制:
+
+```python
+# 线程安全的共享变量
+_progress_shared_lock = threading.Lock()
+_progress_shared: Optional[Callable] = None
+
+_stage_shared_lock = threading.Lock()
+_stage_shared: Optional["StageDef"] = None
+
+def set_progress_callback_shared(cb): ...
+def get_progress_callback_shared(): ...
+def set_current_stage_shared(stage): ...
+def get_current_stage_shared(): ...
+```
+
+新增 `compute_streaming_percent(stage, phase, chars)` 计算进度百分比:
+
+| phase | 百分位 | 说明 |
+|---|---|---|
+| `first_token` | 阶段区间 35% | LLM 已开始输出 |
+| `streaming` | 35% → 90% | 按 chars/1500 归一化逐步推进 |
+| 剩余 | 90% → 100% | 留给 `stage_end`,避免进度条"卡在 99%" |
+
+##### 4.8.2 LLMClient 回调获取优先级扩展(`llm_client.py`)
+
+```python
+# 优先级:显式参数 > ContextVar > 线程安全共享变量 > None
+if progress_callback is not None:
+    self._progress_callback = progress_callback
+else:
+    # 先尝试 ContextVar
+    cb = get_progress_callback()
+    if cb is not None:
+        self._progress_callback = cb
+    # 回退到线程安全的共享变量
+    if self._progress_callback is None:
+        cb = get_progress_callback_shared()
+        if cb is not None:
+            self._progress_callback = cb
+```
+
+##### 4.8.3 节点阶段追踪(`graph.py`)
+
+新增 `_with_stage_tracking` 包装器,每个节点执行前通过线程安全变量设置当前阶段:
+
+```python
+def _with_stage_tracking(node_name: str, node_fn):
+    def wrapped(state):
+        stage = stage_by_node(node_name)
+        if stage:
+            set_current_stage_shared(stage)
+        return node_fn(state)
+    return wrapped
+
+# 注册节点时统一包装
+workflow.add_node("parse_resume", _with_stage_tracking("parse_resume", parse_resume_node))
+```
+
+##### 4.8.4 核心重构:队列 + 后台任务(`analyzer.py`)
+
+```python
+queue: asyncio.Queue[tuple] = asyncio.Queue(maxsize=200)
+loop = asyncio.get_running_loop()
+
+# 进度回调:在工作线程中被 LLMClient 调用,线程安全地推入队列
+def progress_callback(phase: str, info: dict) -> None:
+    stage = get_current_stage_shared()
+    loop.call_soon_threadsafe(
+        queue.put_nowait,
+        ("progress", phase, info, stage.key if stage else None),
+    )
+
+# 同时设置 ContextVar 和线程安全共享变量
+set_progress_callback(progress_callback)
+set_progress_callback_shared(progress_callback)
+
+# 后台任务:运行工作流,将节点事件推入队列
+async def run_workflow() -> None:
+    async for event in workflow.astream(initial):
+        await queue.put(("node", event))
+
+task = asyncio.create_task(run_workflow())
+
+# 主生成器从队列消费
+while True:
+    item = await queue.get()
+    if item[0] == "progress":
+        # token 级进度 → yield NDJSON progress 事件
+        yield _json_line(make_progress_event(stage, percent, ...))
+    elif item[0] == "node":
+        # 节点完成 → yield stage_end 事件
+        yield _json_line(make_stage_end_event(stage))
+```
+
+#### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `app/workflow/progress.py` | 新增线程安全共享变量 + `compute_streaming_percent` |
+| `app/extractors/llm_client.py` | 回调获取优先级增加线程安全共享变量 |
+| `app/workflow/graph.py` | `_with_stage_tracking` 包装器 |
+| `app/services/analyzer.py` | `asyncio.Queue` + 后台任务 + 删除仅写日志的 `_make_progress_callback` |
+
+#### NDJSON 事件流对比
+
+```
+之前(仅 stage_start/end):
+  {"type":"stage_start","key":"parse_resume","percent":8.75}
+  ... 长时间黑盒等待 ...
+  {"type":"stage_end","key":"parse_resume"}
+
+之后(含 token 级进度):
+  {"type":"stage_start","key":"parse_resume","percent":8.75}
+  {"type":"progress","percent":10.25,"message":"已处理 50 字符","chars":50}
+  {"type":"progress","percent":13.0,"message":"已处理 500 字符","chars":500}
+  {"type":"progress","percent":18.5,"message":"已处理 1500 字符","chars":1500}
+  {"type":"stage_end","key":"parse_resume"}
+```
+
+#### 前端兼容性
+
+前端 `app.js` 已有 `progress` 事件处理逻辑,无需修改:
+
+```javascript
+case "progress":
+    onProgress(evt.percent, evt.message, evt.chars);
+    break;
+```
+
+`onProgress` 会更新进度条宽度和状态文字,新增的 token 级进度事件自动生效。
+
+---
+
+### 4.9 并行抽取:parse_resume / parse_job 并行化
+
+#### 背景
+
+原工作流中 `parse_resume → parse_job` 是串行的,但两者**互不依赖**:
+- `parse_resume` 只读 `inputs.resume_text`,写入 `resume_data`
+- `parse_job` 只读 `inputs.job_text`,写入 `job_requirement`
+
+串行执行时,两个 LLM 调用耗时相加(12~20s + 13~19s = 25~39s);并行后取最长者,节省 10~20s。
+
+#### 方案
+
+```
+改动前(串行):
+  START → parse_resume → parse_job → {matchers} → aggregate → suggestions → END
+
+改动后(并行):
+                  ┌─→ parse_resume ─┐
+  START ──────────┤                 ├─→ dispatch_matchers → {matchers} → aggregate → suggestions → END
+                  └─→ parse_job  ──┘
+```
+
+关键改动:
+1. `parse_resume` 和 `parse_job` 都从 `START` 直接扇出(`add_edge(START, "parse_resume")` + `add_edge(START, "parse_job")`)
+2. 新增 `dispatch_matchers` 中继节点作为 fan-in 汇聚点,等待两个抽取节点都完成后再 fan-out 到三个匹配器
+3. `dispatch_matchers` 返回 `{"errors": state.get("errors", [])}` 满足 LangGraph 的 state 更新要求(空 dict 会触发 `InvalidUpdateError`)
+
+#### 涉及文件
+
+| 文件 | 变更 |
+|---|---|
+| `app/workflow/graph.py` | 引入 `START`;新增 `_dispatch_matchers_node` 中继节点;两条 `add_edge(START, ...)` 替代 `set_entry_point` + 串行边 |
+| `static/app.js` | `onStageStart`/`onStageEnd` 处理并行阶段(index 1/2 同时 active 时加 `parallel-active`) |
+| `static/app.css` | 新增 `.parallel-active` 样式(琥珀色圆点 + 浅色文字,区别于主 active 的橙色) |
+
+#### 前端并行 UI
+
+项目中有**两组并行阶段**,前端用 `PARALLEL_GROUPS` 分组管理:
+
+```javascript
+const PARALLEL_GROUPS = [
+  new Set([1, 2]),    // parse_resume + parse_job
+  new Set([3, 4, 5]), // skill_gap + experience + keywords
+];
+```
+
+当同组内多个步骤同时运行时:
+- 先启动的为 `.active`(橙色),其余为 `.parallel-active`(琥珀色)
+- 一个完成后,同组其他步骤移除 `parallel-active`,恢复为唯一 `.active`
+- 全部完成后,都变为 `.done`
+
+```css
+.run-steps li.parallel-active .step-dot {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(255,176,32,0.3);
+}
+```
+
+> **注意**:初始实现只处理了 index 1/2 的并行,遗漏了 index 3/4/5 的匹配器并行。后改为分组模式,统一支持所有并行组。
+
+#### 踩坑:InvalidUpdateError
+
+`_dispatch_matchers_node` 初始实现返回空 dict `{}`,LangGraph 报错:
+```
+InvalidUpdateError: Expected node inputs to update at least one of [...], got {}
+```
+修复:返回 `{"errors": state.get("errors", [])}`,透传已有的 errors 列表。
+
+#### 实测效果
+
+| 节点 | 改造前(串行) | 改造后(并行) |
+|---|---|---|
+| parse_resume | 14,797ms | 18,468ms |
+| parse_job | 12,828ms | 13,671ms |
+| **抽取阶段合计** | **27,625ms**(串行相加) | **18,468ms**(取最长) |
+| **节省** | — | **~9s** |
+
+两个 DeepSeek API 请求同时发出(日志时间戳相同),确认并行生效。
+
+---
+
 ## 5. 验证清单
 
 ### 5.1 基础(8 条)
@@ -680,7 +984,10 @@ Invoke-RestMethod -Uri "https://api.github.com/repos/<owner>/<repo>/contents/<pa
 | 2026-06-05 下午 | 根因定位:CSS `[hidden]` 失效 + `_progress_callback` 未初始化 + langgraph 0.2.x `astream` 不发 `__end__` |
 | 2026-06-05 下午 | 修复 5 个相关 bug(详见 §4.6),同步 `/analyze` 200、流式 `match_report: 76.4`、`suggestions: 10` |
 | 2026-06-05 下午 | 文档整合到 §1 / §4.6 / §5.5 / §8,准备推送至 GitHub |
+| 2026-06-06 | LangGraph 并行匹配改造:Send fan-out/fan-in 替代顺序边,三个匹配节点真正并行执行 |
+| 2026-06-06 | 流式进度推送改造:token 级实时进度 + asyncio.Queue + 线程安全桥接,前端进度条不再黑盒等待 |
+| 2026-06-06 | 并行抽取改造:parse_resume / parse_job 从 START 并行扇出,抽取阶段耗时从串行之和降为取最长者 |
 
 ---
 
-**最后更新**:2026-06-05 · 维护者:`cxzrdxy`
+**最后更新**:2026-06-06 · 维护者:`cxzrdxy`

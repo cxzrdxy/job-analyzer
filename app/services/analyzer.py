@@ -1,6 +1,7 @@
 """分析服务:组合解析/抽取/工作流,作为业务编排入口."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 import uuid
@@ -13,7 +14,9 @@ from app.parsers.text_extractor import extract_text
 from app.workflow.graph import build_workflow
 from app.workflow.progress import (
     STAGES,
+    compute_streaming_percent,
     get_current_stage,
+    get_current_stage_shared,
     make_done_event,
     make_error_event,
     make_meta_event,
@@ -21,7 +24,9 @@ from app.workflow.progress import (
     make_stage_end_event,
     make_stage_start_event,
     set_current_stage,
+    set_current_stage_shared,
     set_progress_callback,
+    set_progress_callback_shared,
     stage_by_key,
     stage_by_node,
 )
@@ -53,7 +58,7 @@ class AnalyzerService:
             self._workflow = build_workflow()
         return self._workflow
 
-    def analyze(
+    async def analyze(
         self,
         *,
         resume_bytes: Optional[bytes] = None,
@@ -83,7 +88,7 @@ class AnalyzerService:
             }
         }
         try:
-            final = self._get_workflow().invoke(initial)
+            final = await self._get_workflow().ainvoke(initial)
         except AppError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -118,8 +123,11 @@ class AnalyzerService:
     ) -> AsyncIterator[bytes]:
         """流式分析,逐行 yield NDJSON 事件.
 
-        核心策略:单次 workflow.astream() 调用,按节点事件映射到阶段进度.
-        事件序列: meta → upload → (stage_start → stage_end)×N → done | error
+        核心策略:
+        - 工作流在后台 asyncio.Task 中运行,节点事件推入 asyncio.Queue
+        - 进度回调通过 loop.call_soon_threadsafe 线程安全地推入同一队列
+        - 主生成器从队列消费,实时 yield NDJSON 行(含 token 级进度)
+        - 事件序列: meta → upload → (stage_start → progress… → stage_end)×N → done | error
         """
         trace_id = trace_id or str(uuid.uuid4())
         t0 = time.monotonic()
@@ -156,74 +164,143 @@ class AnalyzerService:
             }
         }
 
-        # ---- 3. 单次 astream,按节点事件映射阶段 ----
+        # ---- 3. 队列 + 后台任务:实时推送进度 ----
         workflow = self._get_workflow()
+        queue: asyncio.Queue[tuple] = asyncio.Queue(maxsize=200)
 
-        # 设置全局 progress_callback(ContextVar),LLMClient 构造时自动拾取
-        set_progress_callback(self._make_progress_callback())
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        # 进度回调:在工作线程中被 LLMClient 调用,线程安全地推入队列
+        def progress_callback(phase: str, info: dict) -> None:
+            if loop is None:
+                return
+            stage = get_current_stage_shared()
+            try:
+                loop.call_soon_threadsafe(
+                    queue.put_nowait,
+                    ("progress", phase, info, stage.key if stage else None),
+                )
+            except (RuntimeError, asyncio.QueueFull):
+                pass
+
+        # 同时设置 ContextVar 和线程安全共享变量,确保两种路径都能获取回调
+        set_progress_callback(progress_callback)
+        set_progress_callback_shared(progress_callback)
+
+        # 后台任务:运行工作流,将节点事件推入队列
+        async def run_workflow() -> None:
+            try:
+                async for event in workflow.astream(initial):
+                    await queue.put(("node", event))
+            except AppError as exc:
+                await queue.put(("app_error", exc))
+            except Exception as exc:  # noqa: BLE001
+                await queue.put(("exception", exc))
+            finally:
+                await queue.put(("workflow_done", None))
+
+        task = asyncio.create_task(run_workflow())
 
         final_state = None
+        # 已推送 stage_start 的阶段集合,用于在首次收到进度时提前推送 stage_start
+        started_stages: set[str] = set()
+
         try:
-            async for event in workflow.astream(initial):
-                # event 格式: {node_name: state} 或 {"__end__": state}(旧版 langgraph)
-                if "__end__" in event:
-                    final_state = event["__end__"]
+            while True:
+                item = await queue.get()
+                kind = item[0]
+
+                # ---- 进度事件(LLM token 级) ----
+                if kind == "progress":
+                    _, phase, info, stage_key = item
+                    if not stage_key:
+                        continue
+                    stage = stage_by_key(stage_key)
+                    if not stage:
+                        continue
+                    # 首次收到该阶段的进度,先推送 stage_start
+                    if stage_key not in started_stages:
+                        started_stages.add(stage_key)
+                        yield _json_line(make_stage_start_event(stage))
+                    percent = compute_streaming_percent(stage, phase, info.get("chars", 0))
+                    chars = info.get("chars", 0)
+                    msg = f"已处理 {chars} 字符" if chars else ""
+                    yield _json_line(make_progress_event(stage, percent, message=msg, chars=chars))
+
+                # ---- 节点完成事件 ----
+                elif kind == "node":
+                    _, event = item
+                    if "__end__" in event:
+                        final_state = event["__end__"]
+                        break
+
+                    node_name = next(iter(event.keys()), None)
+                    if node_name is None:
+                        continue
+
+                    stage = stage_by_node(node_name)
+                    if stage is None:
+                        logger.warning("astream 事件来自未知节点 %s,跳过", node_name)
+                        for k, v in event[node_name].items():
+                            initial[k] = v
+                        continue
+
+                    # 如果进度回调还没触发 stage_start,在这里补发
+                    if stage.key not in started_stages:
+                        started_stages.add(stage.key)
+                        yield _json_line(make_stage_start_event(stage))
+
+                    set_current_stage(stage)
+
+                    # 合并节点输出到状态
+                    node_output = event[node_name]
+                    for k, v in node_output.items():
+                        initial[k] = v
+
+                    yield _json_line(make_stage_end_event(stage))
+
+                # ---- 工作流异常 ----
+                elif kind == "app_error":
+                    _, exc = item
+                    current = get_current_stage()
+                    yield _json_line(make_error_event(
+                        current.key if current else "unknown",
+                        exc.code,
+                        str(exc),
+                    ))
+                    return
+
+                elif kind == "exception":
+                    _, exc = item
+                    logger.exception("工作流执行失败 trace_id=%s", trace_id)
+                    current = get_current_stage()
+                    yield _json_line(make_error_event(
+                        current.key if current else "unknown",
+                        "workflow_error",
+                        str(exc),
+                    ))
+                    return
+
+                # ---- 工作流完成(langgraph 0.2.x 不发 __end__) ----
+                elif kind == "workflow_done":
+                    final_state = initial
                     break
 
-                # 取出当前触发的节点名
-                node_name = next(iter(event.keys()), None)
-                if node_name is None:
-                    continue
-
-                # 映射到阶段定义
-                stage = stage_by_node(node_name)
-                if stage is None:
-                    logger.warning("astream 事件来自未知节点 %s,跳过", node_name)
-                    # 仍然合并状态
-                    for k, v in event[node_name].items():
-                        initial[k] = v
-                    continue
-
-                # 设置当前阶段上下文(供回调计算 percent 使用)
-                set_current_stage(stage)
-
-                # 推送阶段开始
-                yield _json_line(make_stage_start_event(stage))
-
-                # 合并节点输出到状态
-                node_output = event[node_name]
-                for k, v in node_output.items():
-                    initial[k] = v
-
-                # 推送阶段结束
-                yield _json_line(make_stage_end_event(stage))
-            else:
-                # langgraph 0.2.x 的 astream 不再发送 __end__ 事件;
-                # 循环自然结束(无 break)说明 workflow 已跑完,此时累积的 `initial`
-                # 即为最终 state。这是这次空结果 bug 的修复点。
-                final_state = initial
-
-        except AppError as exc:
-            current = get_current_stage()
-            yield _json_line(make_error_event(
-                current.key if current else "unknown",
-                exc.code,
-                str(exc),
-            ))
-            return
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("工作流执行失败 trace_id=%s", trace_id)
-            current = get_current_stage()
-            yield _json_line(make_error_event(
-                current.key if current else "unknown",
-                "workflow_error",
-                str(exc),
-            ))
-            return
         finally:
-            # 清理上下文
+            # 清理所有上下文
             set_progress_callback(None)
+            set_progress_callback_shared(None)
             set_current_stage(None)
+            set_current_stage_shared(None)
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
         # ---- 4. 组装结果,输出 done ----
         duration_ms = (time.monotonic() - t0) * 1000
@@ -243,30 +320,6 @@ class AnalyzerService:
         yield _json_line(make_done_event(result_data, duration_ms))
 
     # ---- 内部辅助 ----
-
-    def _make_progress_callback(self):
-        """创建全局 progress_callback.
-
-        回调签名: (phase: str, info: dict) -> None
-        phase ∈ {"first_token", "streaming", "error"}
-        通过 ContextVar 获取当前阶段来计算 percent.
-        """
-
-        def callback(phase: str, info: dict) -> None:
-            stage = get_current_stage()
-            if stage is None:
-                return
-            logger.debug(
-                "stage=%s phase=%s chars=%s",
-                stage.key,
-                phase,
-                info.get("chars", 0),
-            )
-            # 注意:同步回调无法直接 yield NDJSON 行;
-            # token 级进度推送需要 asyncio.Queue + 异步消费,
-            # 第一版先做日志记录,前端通过 stage_start/end 感知进度.
-
-        return callback
 
     def _load_resume_text(self, data: Optional[bytes], path: Optional[str], suffix: str) -> str:
         if data is not None:

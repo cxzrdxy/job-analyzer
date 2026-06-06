@@ -4,9 +4,15 @@
 - STAGES: 阶段表,定义 8 个分析阶段的 key / label / percent 区间
 - ProgressEvent: NDJSON 行格式 TypedDict
 - stage_by_node(): LangGraph 节点名 → StageDef 映射
+
+线程安全补充:
+- LangGraph astream() 在线程池中执行同步节点,ContextVar 无法跨线程传播
+- 因此额外提供 _shared 系列函数,用 threading.Lock 保护模块级变量
+- LLMClient 在工作线程中通过 _shared 函数获取回调与当前阶段
 """
 from __future__ import annotations
 
+import threading
 from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
@@ -45,6 +51,43 @@ def get_current_stage() -> Optional["StageDef"]:
 def set_current_stage(stage: Optional["StageDef"]) -> Any:
     """设置当前正在执行的分析阶段."""
     return _current_stage_cv.set(stage)
+
+
+# ---- 线程安全的共享变量 ----
+# LangGraph astream() 在线程池中执行同步节点,ContextVar 不会传播到工作线程,
+# 因此用模块级变量 + threading.Lock 作为跨线程通信机制。
+
+_progress_shared_lock = threading.Lock()
+_progress_shared: Optional[Callable[[str, dict[str, Any]], None]] = None
+
+_stage_shared_lock = threading.Lock()
+_stage_shared: Optional["StageDef"] = None
+
+
+def set_progress_callback_shared(cb: Optional[Callable[[str, dict[str, Any]], None]]) -> None:
+    """线程安全:设置全局进度回调(供 LLMClient 在工作线程中读取)."""
+    global _progress_shared
+    with _progress_shared_lock:
+        _progress_shared = cb
+
+
+def get_progress_callback_shared() -> Optional[Callable[[str, dict[str, Any]], None]]:
+    """线程安全:获取全局进度回调."""
+    with _progress_shared_lock:
+        return _progress_shared
+
+
+def set_current_stage_shared(stage: Optional["StageDef"]) -> None:
+    """线程安全:设置当前阶段(供节点函数在工作线程中设置)."""
+    global _stage_shared
+    with _stage_shared_lock:
+        _stage_shared = stage
+
+
+def get_current_stage_shared() -> Optional["StageDef"]:
+    """线程安全:获取当前阶段(供进度回调在工作线程中读取)."""
+    with _stage_shared_lock:
+        return _stage_shared
 
 
 @dataclass(frozen=True)
@@ -193,3 +236,20 @@ def make_error_event(
         "code": code,
         "message": message,
     }
+
+
+def compute_streaming_percent(stage: "StageDef", phase: str, chars: int) -> float:
+    """根据阶段、回传阶段和已接收字符数计算进度百分比.
+
+    策略:
+    - first_token: 阶段区间的 35% 处(LLM 已开始输出)
+    - streaming: 从 35% 逐步逼近 90%,用 chars/1500 做归一化
+    - 剩余 10% 留给 stage_end,避免进度条"卡在 99%"
+    """
+    span = stage.percent_end - stage.percent_start
+    if phase == "first_token":
+        return stage.percent_start + 0.35 * span
+    if phase == "streaming":
+        fraction = min(chars / 1500, 1.0)
+        return stage.percent_start + (0.35 + 0.55 * fraction) * span
+    return stage.percent_start + 0.1 * span

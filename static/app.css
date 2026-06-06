@@ -531,6 +531,11 @@ textarea#jd:focus { border-color: var(--orange); }
   background: var(--orange);
   box-shadow: 0 0 8px rgba(255,122,26,0.4);
 }
+.run-steps li.parallel-active { color: var(--text-dim); }
+.run-steps li.parallel-active .step-dot {
+  background: var(--amber);
+  box-shadow: 0 0 6px rgba(255,176,32,0.3);
+}
 .run-steps li.done { color: var(--text-dim); }
 .run-steps li.done .step-dot { background: var(--green-dim); }
 .run-steps li.error { color: var(--red); }

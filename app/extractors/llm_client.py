@@ -39,7 +39,7 @@ class LLMClient:
         self._model = None
         # 始终初始化,避免 chat_json / chat_text / _invoke 在无 callback 时 AttributeError
         self._progress_callback: ProgressCallback = None
-        # 优先级:显式参数 > 上下文变量(ContextVar) > None
+        # 优先级:显式参数 > ContextVar > 线程安全共享变量 > None
         if progress_callback is not None:
             self._progress_callback = progress_callback
         else:
@@ -51,6 +51,17 @@ class LLMClient:
                     self._progress_callback = cb
             except Exception:
                 pass
+            # LangGraph astream() 在线程池中执行同步节点,
+            # ContextVar 不会传播到工作线程,回退到线程安全的共享变量
+            if self._progress_callback is None:
+                try:
+                    from app.workflow.progress import get_progress_callback_shared
+
+                    cb = get_progress_callback_shared()
+                    if cb is not None:
+                        self._progress_callback = cb
+                except Exception:
+                    pass
 
     def _get_model(self):  # noqa: ANN202 - 动态类型
         if self._model is not None:

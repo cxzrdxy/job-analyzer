@@ -176,13 +176,33 @@ def _coerce_str(value):
 
 
 def _normalize_suggestions(items: list) -> list:
-    """LLM 偶尔会把字符串字段输出成列表/对象,这里做一次规整."""
+    """LLM 偶尔会把字符串字段输出成列表/对象,或输出不在枚举内的值,这里做一次规整."""
+    # 合法枚举值映射(LLM 可能输出 skill/experience 等不在枚举内的值)
+    _type_map = {
+        "skill": "content", "skills": "content", "experience": "content",
+        "education": "content", "certification": "content",
+    }
+    _priority_map = {
+        "critical": "high", "important": "high", "normal": "medium", "low": "low",
+    }
+    _section_map = {
+        "skill": "skills", "work": "work_experience", "exp": "work_experience",
+        "project": "project", "edu": "education", "cert": "certification",
+        "overall": "overall", "summary": "summary",
+    }
     for it in items:
         if not isinstance(it, dict):
             continue
         for k in ("current", "example", "suggestion", "reason", "related_jd_requirement"):
             if k in it:
                 it[k] = _coerce_str(it[k])
+        # 修正非法枚举值
+        if "type" in it and isinstance(it["type"], str):
+            it["type"] = _type_map.get(it["type"].lower(), it["type"])
+        if "priority" in it and isinstance(it["priority"], str):
+            it["priority"] = _priority_map.get(it["priority"].lower(), it["priority"])
+        if "section" in it and isinstance(it["section"], str):
+            it["section"] = _section_map.get(it["section"].lower(), it["section"])
     return items
 
 

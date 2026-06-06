@@ -289,10 +289,29 @@
     runView.hidden = true;
   }
 
+  // 并行阶段分组:同组内的步骤同时运行,需要 parallel-active 样式
+  const PARALLEL_GROUPS = [
+    new Set([1, 2]),   // parse_resume + parse_job
+    new Set([3, 4, 5]), // skill_gap + experience + keywords
+  ];
+
+  function _findParallelGroup(index) {
+    return PARALLEL_GROUPS.find(g => g.has(index)) || null;
+  }
+
   function onStageStart(index, label) {
     const steps = $$("#runSteps li");
     if (steps[index]) {
       steps[index].classList.add("active");
+    }
+    // 如果当前启动的是并行阶段之一,给同组其他 active 步骤加 parallel-active
+    const group = _findParallelGroup(index);
+    if (group) {
+      for (const i of group) {
+        if (i !== index && steps[i] && steps[i].classList.contains("active")) {
+          steps[i].classList.add("parallel-active");
+        }
+      }
     }
     runMsg.textContent = label + "…";
     runError.hidden = true;
@@ -315,10 +334,19 @@
     const steps = $$("#runSteps li");
     if (steps[index]) {
       steps[index].classList.remove("active");
+      steps[index].classList.remove("parallel-active");
       steps[index].classList.add("done");
     }
-    // 进度条推到阶段终点
-    // (done 事件会推到 100%)
+    // 并行阶段:一个结束后,同组其他步骤移除 parallel-active(恢复为唯一 active)
+    const group = _findParallelGroup(index);
+    if (group) {
+      for (const i of group) {
+        if (i !== index && steps[i] && steps[i].classList.contains("parallel-active")) {
+          steps[i].classList.remove("parallel-active");
+          // 保持 active 状态(仍在运行)
+        }
+      }
+    }
   }
 
   function onError(stage, code, message) {

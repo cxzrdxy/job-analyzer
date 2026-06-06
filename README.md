@@ -39,6 +39,8 @@
 | 🎯 **轻量化匹配** | 技能 / 经验 / 关键词三层规则匹配,Token 消耗低、可解释。 |
 | 🪜 **可降级建议** | LLM 抽取失败时,自动 fallback 到基于匹配证据的启发式建议。 |
 | 🔁 **LangGraph 编排** | 8 阶段流式工作流,`trace_id` 全链路可观测,同步 / 流式双通道。 |
+| ⚡ **并行执行** | 抽取阶段(parse_resume ∥ parse_job)和匹配阶段(skill_gap ∥ experience ∥ keywords)均并行执行,端到端耗时大幅缩短。 |
+| 📊 **Token 级进度** | 流式接口推送 LLM token 级实时进度,前端进度条不再黑盒等待。 |
 | 🔌 **Provider 透明** | 默认 DeepSeek v4 Flash,改一行 `.env` 即可切 OpenAI(0 业务代码改动)。 |
 | 🛡 **错误分级** | 业务异常(415/413/422/502)与系统异常(500)分别落点,Swagger 友好。 |
 
@@ -54,12 +56,14 @@ flowchart LR
   B --> C[extractors.LLMClient.chat_json]
   C --> D[extractors.resume_extractor]
   C --> E[extractors.job_extractor]
-  D --> F[matchers]
-  E --> F
-  F -->|skill/exp/keyword| G[workflow.graph · LangGraph]
-  G --> H[services.analyzer]
-  H --> I[response.match_report + suggestions]
-  I --> J[JSON / SSE]
+  D & E -->|并行抽取| F[dispatch_matchers · fan-in]
+  F -->|fan-out| G1[matchers.skill_gap]
+  F -->|fan-out| G2[matchers.experience]
+  F -->|fan-out| G3[matchers.keywords]
+  G1 & G2 & G3 -->|并行匹配| H[aggregate_report]
+  H --> I[generate_suggestions · LLM]
+  I --> J[response.match_report + suggestions]
+  J --> K[JSON / SSE]
 ```
 
 </div>

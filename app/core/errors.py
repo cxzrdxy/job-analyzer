@@ -46,3 +46,10 @@ class ExtractError(AppError):
 class WorkflowError(AppError):
     code = "workflow_error"
     http_status = 500
+
+
+class NotFoundError(AppError):
+    """资源不存在(如缓存项、面试题记录等)."""
+
+    code = "not_found"
+    http_status = 404

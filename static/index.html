@@ -24,6 +24,7 @@
     </div>
     <nav class="top-nav">
       <a class="active" href="/app">工作台</a>
+      <a href="/interview">面试台</a>
       <a href="/">服务台</a>
       <a href="/docs" target="_blank" rel="noopener">API 文档</a>
     </nav>
@@ -94,9 +95,9 @@
         <div class="empty-art" aria-hidden="true">
           <pre>
    ╔══════════════════════════════════════╗
-   ║   待  分  析  ·  pending intake     ║
+   ║   待  分  析  ·  pending intake       ║
    ║                                      ║
-   ║   提交简历 + 岗位 JD 即可生成报告    ║
+   ║   提交简历 + 岗位 JD 即可生成报告        ║
    ╚══════════════════════════════════════╝
           </pre>
         </div>
@@ -149,11 +150,15 @@
 
       <!-- 跑完后渲染到这里 -->
       <article class="report" id="report" hidden>
+        <!-- 报告上方操作栏:一键跳面试台 -->
+        <div class="report-actions" id="reportActions" hidden>
+          <a class="btn-iv" id="btnGoInterview" href="#">🎯 基于此报告生成面试题 →</a>
+        </div>
         <!-- 报头 -->
         <header class="report-head">
           <div class="head-left">
             <div class="kicker">DIAGNOSTIC REPORT · 分析单</div>
-            <h1 class="headline" id="r_position">岗位匹配诊断</h1>
+            <h1 class="headline"><b class="hl-strong" id="r_position_strong">岗位匹配</b><span id="r_position_tail">诊断</span></h1>
             <div class="byline">
               <span>样本 ID</span>
               <code id="r_trace">—</code>

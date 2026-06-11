@@ -5,8 +5,9 @@ import asyncio
 import json
 import time
 import uuid
-from typing import AsyncIterator, Optional
+from typing import Any, AsyncIterator, Optional
 
+from app.core.cache import safe_save_analysis
 from app.core.config import get_settings
 from app.core.errors import AppError, ParseError, WorkflowError
 from app.core.logging import get_logger
@@ -38,6 +39,66 @@ logger = get_logger(__name__)
 def _json_line(obj: dict) -> bytes:
     """把 dict 编码为 NDJSON 行(以 \\n 结尾)."""
     return (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _dump_model(value: Any) -> Any:
+    """把 Pydantic 模型转成 dict,其他值原样返回.
+
+    缓存层需要的是可 JSON 序列化的字典;AgentState 中各字段既可能是 Pydantic
+    模型,也可能是 dict(来自合并节点的部分输出),统一在此处理.
+    """
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump()
+        except Exception:  # noqa: BLE001
+            return None
+    return value
+
+
+def _persist_cache(
+    trace_id: str,
+    final_state: Optional[dict],
+) -> None:
+    """分析完成后把中间结果写入缓存(异步后台任务).
+
+    写入失败不影响主流程返回值(由 safe_save_analysis 内部降级).
+    """
+    if final_state is None:
+        return
+    resume_data = _dump_model(final_state.get("resume_data"))
+    job_requirement = _dump_model(final_state.get("job_requirement"))
+    match_report = _dump_model(final_state.get("match_report"))
+    suggestions_raw = final_state.get("suggestions") or []
+    # suggestions 在 state 中已经是 list[dict],但也可能混入 Pydantic 实例
+    suggestions = [
+        s.model_dump() if hasattr(s, "model_dump") else s
+        for s in suggestions_raw
+    ]
+
+    meta = {
+        "provider": get_settings().llm.provider,
+        "model": get_settings().llm.model,
+    }
+
+    async def _do() -> None:
+        await safe_save_analysis(
+            trace_id,
+            resume_data=resume_data,
+            job_requirement=job_requirement,
+            match_report=match_report,
+            suggestions=suggestions,
+            meta=meta,
+        )
+
+    # 后台写入,不阻塞主流程返回
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_do())
+    except RuntimeError:
+        # 没有 running loop(同步调用入口),跳过缓存写入
+        logger.debug("无 running loop,跳过缓存写入 trace_id=%s", trace_id)
 
 
 class AnalyzerService:
@@ -94,6 +155,9 @@ class AnalyzerService:
         except Exception as exc:  # noqa: BLE001
             logger.exception("工作流执行失败 trace_id=%s", trace_id)
             raise WorkflowError(f"工作流执行失败: {exc}") from exc
+
+        # 缓存中间结果(异步后台任务,失败不影响主流程返回)
+        _persist_cache(trace_id, final)
 
         return {
             "trace_id": trace_id,
@@ -304,6 +368,10 @@ class AnalyzerService:
 
         # ---- 4. 组装结果,输出 done ----
         duration_ms = (time.monotonic() - t0) * 1000
+
+        # 缓存中间结果(异步后台任务,失败不影响流式返回)
+        _persist_cache(trace_id, final_state)
+
         result_data = {
             "trace_id": trace_id,
             "match_report": final_state.get("match_report").model_dump()

@@ -8,3 +8,8 @@ pypdf==5.1.0
 langgraph==0.2.53
 langchain-openai==0.2.9
 langchain-core==0.3.21
+
+# ---- 持久化(分析缓存 / 面试题) ----
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0

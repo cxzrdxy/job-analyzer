@@ -87,15 +87,32 @@ class UploadSettings:
 
 
 @dataclass
+class DatabaseSettings:
+    """数据库相关配置(分析缓存 / 面试题)."""
+
+    url: str = field(
+        default_factory=lambda: _env_str(
+            "DATABASE_URL",
+            "postgresql+asyncpg://job:job@localhost:5432/job_analyzer",
+        )
+        or "postgresql+asyncpg://job:job@localhost:5432/job_analyzer"
+    )
+    pool_size: int = field(default_factory=lambda: _env_int("DB_POOL_SIZE", 5))
+    max_overflow: int = field(default_factory=lambda: _env_int("DB_MAX_OVERFLOW", 10))
+    cache_ttl_days: int = field(default_factory=lambda: _env_int("CACHE_TTL_DAYS", 7))
+
+
+@dataclass
 class AppSettings:
     """应用聚合配置."""
 
     app_name: str = "求职分析智能体"
-    version: str = "0.1.0"
+    version: str = "0.2.0"
     debug: bool = field(default_factory=lambda: _env_str("APP_DEBUG", "false") == "true")
     log_level: str = field(default_factory=lambda: _env_str("LOG_LEVEL", "INFO") or "INFO")
     llm: LLMSettings = field(default_factory=LLMSettings)
     upload: UploadSettings = field(default_factory=UploadSettings)
+    database: DatabaseSettings = field(default_factory=DatabaseSettings)
 
 
 @lru_cache(maxsize=1)

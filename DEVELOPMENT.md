@@ -22,6 +22,8 @@
   - [4.7 LangGraph 并行匹配:fan-out/fan-in](#47-langgraph-并行匹配fan-outfan-in)
   - [4.8 流式进度推送:token 级实时进度](#48-流式进度推送token-级实时进度)
   - [4.9 并行抽取:parse_resume / parse_job 并行化](#49-并行抽取parse_resume--parse_job-并行化)
+  - [4.10 面试题预测:独立页面 + 持久化缓存](#410-面试题预测独立页面--持久化缓存)
+  - [4.11 工作台持久化 + 面试台贯通(本次更新)](#411-工作台持久化--面试台贯通本次更新)
 - [5. 验证清单](#5-验证清单)
 - [6. 风险、回滚与安全](#6-风险回滚与安全)
 - [7. GitHub 发布说明](#7-github-发布说明)
@@ -34,17 +36,19 @@
 | 项 | 值 |
 |---|---|
 | 项目类型 | FastAPI + LangGraph 求职分析智能体 |
-| 主要能力 | 简历 PDF / DOCX / TXT + JD 文本 → 技能匹配度 + 优化建议 |
+| 主要能力 | 简历 PDF / DOCX / TXT + JD 文本 → 技能匹配度 + 优化建议 + 预测面试题 + **历史报告回看(URL 持久化)** |
 | LLM 基座 | **DeepSeek v4 Flash**(`provider=deepseek`,可通过 `.env` 切回 OpenAI) |
 | 默认端口 | `http://localhost:8000` |
-| 前端应用 | `http://localhost:8000/app` |
+| 前端应用 | `http://localhost:8000/app` · 面试题预测 `http://localhost:8000/interview` |
 | API 文档 | `http://localhost:8000/docs` |
-| 核心依赖 | FastAPI 0.115 / Pydantic 2.9 / LangGraph 0.2.53 / langchain-openai 0.2.9 |
+| 核心依赖 | FastAPI 0.115 / Pydantic 2.9 / LangGraph 0.2.53 / langchain-openai 0.2.9 / **SQLAlchemy 2.0 async + asyncpg + alembic** |
 | Python 环境 | `D:\miniconda\envs\fastapi` (Python 3.10.19) |
+| 数据持久化 | PostgreSQL 16(可选,缓存/面试题;不可用时主分析正常) |
 
-**最常用的两个 URL**:
+**最常用的 URL**:
 - `GET /` — 运维监控着陆页(深色玻璃拟态,显示 BOOT 日志、stats、provider/model 徽章)
 - `GET /app` — 用户使用的前端应用(上传简历 + 粘贴 JD + 一键分析)
+- `GET /interview` — 面试题预测页面(基于 `?trace_id=xxx` 加载分析摘要)
 
 ---
 
@@ -68,11 +72,14 @@
 | 14 | LangGraph 并行匹配:Send fan-out/fan-in 替代顺序边 | `app/workflow/graph.py`、`app/services/analyzer.py`、`app/api/routes.py` | ✅ |
 | 15 | 流式进度推送:token 级实时进度 + 线程安全桥接 | `app/workflow/progress.py`、`app/extractors/llm_client.py`、`app/workflow/graph.py`、`app/services/analyzer.py` | ✅ |
 | 16 | 并行抽取:parse_resume / parse_job 从 START 并行扇出 | `app/workflow/graph.py`、`static/app.js`、`static/app.css` | ✅ |
+| 17 | 面试题预测(独立页面 + 缓存层 + 工作流零改动) | `app/services/interview_service.py`、`app/api/routes_interview.py`、`app/core/database.py`、`app/core/cache.py`、`app/models/interview.py`、`app/models/cache.py`、`alembic/`、`static/interview.{html,css,js}`、`static/{index.html,app.js,app.css}`、`app/main.py`、`app/services/analyzer.py` | ✅ |
+| 18 | 工作台持久化:历史记录面板 + 报告 CTA 跳转 + 面试台 trace_id 兜底表单 | `app/api/routes_interview.py`、`static/{app,interview}.{js,html,css}` | ✅ |
+| 19 | Bug 修复:面试台 `renderSummary` 读错字段(`job.title` → `job.position`) | `static/interview.js` | ✅ |
 
-**业务代码改动**:
-- 后端:4 个文件 — `app/api/routes.py`、`app/matchers/skill_matcher.py`、`app/extractors/llm_client.py`、`app/services/analyzer.py` + 1 个节点注入 `app/workflow/nodes.py`
-- 前端:2 个文件 — `static/app.js`、`static/app.css` + 资源版本 `static/index.html`
-- 配置/文档:5 个文件 — `app/core/config.py`、`.env`、`.env.example`、`.gitignore`、`DEVELOPMENT.md`
+**业务代码改动(累计)**:
+- 后端:7 个新文件 + 4 个改文件 — 新增 `interview_service.py` / `routes_interview.py` / `database.py` / `cache.py` / `models/interview.py` / `models/cache.py` / `alembic/`;改 `main.py` / `analyzer.py` / `core/config.py` / `core/errors.py`
+- 前端:3 个新文件 + 3 个改文件 — 新增 `interview.html` / `interview.css` / `interview.js`;改 `index.html` / `app.js` / `app.css`
+- 配置/文档:5 个文件 — `requirements.txt` / `.env.example` / `README.md` / `DEVELOPMENT.md` / `求职分析智能体设计方案.md`
 
 ---
 
@@ -83,6 +90,7 @@
 - Python 3.10
 - 已激活环境:`D:\miniconda\envs\fastapi`
 - 在项目根目录 `.env` 中有有效 `DEEPSEEK_API_KEY`(或 `OPENAI_API_KEY`)
+- **可选**:PostgreSQL 16(用于面试题预测的分析缓存;不安装也不影响主分析)
 
 ### 2.2 启动
 
@@ -126,9 +134,36 @@ LLM_MODEL=deepseek-v4-flash
 DEEPSEEK_API_KEY=sk-你的真实 key
 # 可选:自定义 base_url(默认 https://api.deepseek.com)
 # LLM_BASE_URL=
+
+# ---- 数据库(面试题预测 / 缓存) ----
+# 主分析不需要这条;启动时检测到无 asyncpg/PG 时会降级跳过缓存
+DATABASE_URL=postgresql+asyncpg://job:job@localhost:5432/job_analyzer
+CACHE_TTL_DAYS=7
 ```
 
 > **安全提醒**:`.env` 已在 `.gitignore` 中,不会进入版本库。Key 只在本地生效。
+
+### 2.5 可选:启动 PostgreSQL(面试题预测)
+
+```bash
+# 方式 A:Docker 快速跑一个(推荐)
+docker run -d --name job-pg -e POSTGRES_USER=job -e POSTGRES_PASSWORD=job \
+  -e POSTGRES_DB=job_analyzer -p 5432:5432 postgres:16-alpine
+
+# 方式 B:本机已装 PostgreSQL,创建用户和库后跳过
+```
+
+初始化数据库表(只跑一次):
+
+```bash
+alembic upgrade head
+# 预期: Running upgrade  -> 0001_add_analysis_cache
+```
+
+**降级行为**:
+- 没装 `asyncpg` → 主分析正常,缓存/面试题端点返回 `503 cache_unavailable`
+- 没启 PostgreSQL → 启动时日志警告 `数据库不可用,缓存层降级`,主分析正常,缓存写入静默失败
+- 启动后数据库恢复 → 下次分析自动写入缓存(无需重启)
 
 ---
 
@@ -137,12 +172,15 @@ DEEPSEEK_API_KEY=sk-你的真实 key
 ```
 c:\Users\10408\Desktop\job\
 ├── app/                                # ★ FastAPI 后端
-│   ├── main.py                         # 应用工厂 + GET / + GET /app
+│   ├── main.py                         # 应用工厂 + GET / + GET /app + GET /interview + 路由注册
 │   ├── api/
-│   │   └── routes.py                   # ★ /api/v1/analyze + /api/v1/info + /api/v1/health
+│   │   ├── routes.py                   # /api/v1/analyze + /api/v1/info + /api/v1/health
+│   │   └── routes_interview.py         # ★ 面试题预测 + 缓存管理 API
 │   ├── core/
-│   │   ├── config.py                   # ★ provider 感知 + base_url 映射
-│   │   ├── errors.py                   # AppError 体系
+│   │   ├── config.py                   # provider 感知 + base_url 映射 + DatabaseSettings
+│   │   ├── errors.py                   # AppError 体系(新增 NotFoundError)
+│   │   ├── database.py                 # ★ SQLAlchemy 2.0 async 引擎 + session 工厂
+│   │   ├── cache.py                    # ★ 分析缓存服务:save/load/list/delete/cleanup
 │   │   └── logging.py
 │   ├── parsers/
 │   │   └── text_extractor.py           # PDF/DOCX/TXT 文本提取
@@ -150,32 +188,46 @@ c:\Users\10408\Desktop\job\
 │   │   ├── llm_client.py               # DeepSeek/OpenAI 客户端
 │   │   ├── resume_extractor.py         # LLM 结构化抽取简历
 │   │   └── job_extractor.py            # LLM 结构化抽取 JD
-│   ├── workflow/                       # LangGraph 工作流
+│   ├── workflow/                       # LangGraph 工作流(本次未改动)
 │   │   ├── graph.py
 │   │   ├── state.py
-│   │   ├── nodes.py                    # ★ 注入 LLMClient 到技能匹配
+│   │   ├── nodes.py
 │   │   └── suggestion_generator.py
 │   ├── matchers/
-│   │   ├── skill_matcher.py            # ★ LLM 语义匹配(字面回退)
+│   │   ├── skill_matcher.py            # LLM 语义匹配(字面回退)
 │   │   ├── experience_matcher.py
 │   │   └── keyword_matcher.py
 │   ├── models/                         # Pydantic 数据模型
+│   │   ├── resume.py / job_requirement.py / suggestion.py / response.py
+│   │   ├── interview.py                # ★ 面试题数据模型
+│   │   └── cache.py                    # ★ AnalysisCache ORM
 │   └── services/
-│       └── analyzer.py                 # 主分析入口
+│       ├── analyzer.py                 # ★ 主分析入口(末尾写入缓存)
+│       └── interview_service.py        # ★ 面试题预测服务
+│
+├── alembic/                            # ★ 数据库迁移
+│   ├── env.py                          # 异步迁移环境
+│   ├── script.py.mako                  # 迁移模板
+│   └── versions/
+│       └── 0001_add_analysis_cache.py  # 初始迁移
+├── alembic.ini                         # ★ Alembic 配置
 │
 ├── static/                             # ★ 前端
-│   ├── app.js                          # ★ 上传/分析交互
-│   ├── app.css
-│   └── index.html                      # GET /app 入口
+│   ├── app.js                          # 上传/分析交互(末尾添加预测 CTA)
+│   ├── app.css                         # 共享设计令牌 + predict-cta 样式
+│   ├── index.html                      # GET /app 入口(添加 predict CTA 区域)
+│   ├── interview.html                  # ★ 面试题预测页面
+│   ├── interview.css                   # ★ 页面专属样式
+│   └── interview.js                    # ★ 页面交互(URL trace_id → NDJSON 渲染)
 │
 ├── .env                                # 本地密钥(已 gitignore)
-├── .env.example                        # 密钥占位模板
-├── .gitignore                          # ★ 防止密钥/临时文件入库
-├── requirements.txt
+├── .env.example                        # 密钥占位模板(含 DATABASE_URL)
+├── .gitignore
+├── requirements.txt                    # 新增 sqlalchemy/asyncpg/alembic
 ├── Dockerfile
-├── README.md
-├── DEVELOPMENT.md                      # ★ 本文档
-└── 求职分析智能体设计方案.md
+├── README.md                           # 更新:增加面试题章节
+├── DEVELOPMENT.md                      # 本文档
+└── 求职分析智能体设计方案.md           # 主方案设计
 ```
 
 `★` = 本次有改动的文件。
@@ -829,6 +881,466 @@ InvalidUpdateError: Expected node inputs to update at least one of [...], got {}
 
 ---
 
+### 4.10 面试题预测:独立页面 + 持久化缓存
+
+#### 背景
+
+主分析完成后,用户希望立即看到「如果我去面试这家公司,会被问什么题」。直接复用分析结果生成面试题,比再传一遍简历+JD 让 LLM 推理更精准(LLM 已有结构化数据可用,无信息损耗)。
+
+#### 设计目标
+
+| 目标 | 决策 |
+|---|---|
+| 工作流影响 | **零改动**(`graph.py` 不动) |
+| 数据来源 | 主分析完成后中间结果自动入库 |
+| 入口 | 独立页面 `/interview`,与 `/app` 解耦 |
+| 端点 | `/api/v1/interview/predict[/stream]`(独立,不复用 `/analyze`) |
+| 数据库 | PostgreSQL 16 + JSONB(必填) |
+| 失败降级 | DB 不可用时主分析正常,缓存层静默失败 |
+
+#### 4.10.1 缓存层设计(`cache.py` + `cache.py:ORM`)
+
+**为什么选 PostgreSQL+JSONB 而不是 SQLite?**
+- 列表查询需要 `JSONB` 上做表达式索引(待二期 RAG 扩展)
+- SQLAlchemy 2.0 async + asyncpg 性能优于 aiosqlite
+- 与生产部署对齐(避免本地 SQLite / 生产 PG 行为分裂)
+
+**表结构** `app/models/cache.py`:
+
+```python
+class AnalysisCache(Base):
+    __tablename__ = "analysis_cache"
+    trace_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 标量摘要(列表查询无需反序列化 JSONB)
+    resume_name: Mapped[Optional[str]] = mapped_column(String(200))
+    job_title: Mapped[Optional[str]] = mapped_column(String(200))
+    overall_score: Mapped[float] = mapped_column(Float, default=0.0)
+    # 完整数据(JSONB)
+    resume_data: Mapped[Optional[dict]] = mapped_column(JSONB)
+    job_requirement: Mapped[Optional[dict]] = mapped_column(JSONB)
+    match_report: Mapped[Optional[dict]] = mapped_column(JSONB)
+    suggestions: Mapped[Optional[list]] = mapped_column(JSONB)
+    meta: Mapped[Optional[dict]] = mapped_column(JSONB)
+    __table_args__ = (
+        Index("ix_analysis_cache_created_at", "created_at"),
+        Index("ix_analysis_cache_job_title", "job_title"),
+    )
+```
+
+**为什么标量摘要 + JSONB 双轨?**
+- 列表页 `GET /api/v1/cache` 只返回 trace_id / 时间 / 候选人 / 岗位 / 综合分 5 个字段
+- 如果全存 JSONB,每条记录要反序列化 4 个 JSONB 字段(整体~5KB),分页 50 条 = 250KB → 50ms+
+- 拆出标量后,单条记录只读 ~50 字节,分页 50 条 < 5KB → 5ms
+- 详情页 `GET /api/v1/cache/{trace_id}` 才读 JSONB,只有用户点进去才付代价
+
+**服务接口** `app/core/cache.py`:
+
+| 函数 | 用途 | 失败行为 |
+|---|---|---|
+| `save_analysis(session, trace_id, ...)` | 写入/覆盖一条缓存 | raise |
+| `load_analysis(session, trace_id)` | 读完整数据(给面试题用) | 返回 None |
+| `load_summary(session, trace_id)` | 读标量摘要(给列表/详情页用) | 返回 None |
+| `list_analyses(session, limit, offset)` | 分页列表 | raise |
+| `delete_analysis(session, trace_id)` | 删除一条 | raise |
+| `cleanup_expired(session, ttl_days)` | 清理过期 | raise |
+| **`safe_save_analysis(trace_id, ...)`** | 降级包装:DB 不可用时**不抛** | **返回 False,日志 warning** |
+
+#### 4.10.2 集成进 analyzer(零侵入)
+
+`analyze()` 和 `analyze_stream()` 末尾各加一个 `_persist_cache()` 调用:
+
+```python
+# app/services/analyzer.py
+def _persist_cache(trace_id: str, final_state: Optional[dict]) -> None:
+    """分析完成后把中间结果写入缓存(异步后台任务)."""
+    if final_state is None:
+        return
+    resume_data = _dump_model(final_state.get("resume_data"))
+    job_requirement = _dump_model(final_state.get("job_requirement"))
+    match_report = _dump_model(final_state.get("match_report"))
+    suggestions = [s.model_dump() if hasattr(s, "model_dump") else s
+                   for s in (final_state.get("suggestions") or [])]
+
+    async def _do():
+        await safe_save_analysis(
+            trace_id,
+            resume_data=resume_data,
+            job_requirement=job_requirement,
+            match_report=match_report,
+            suggestions=suggestions,
+            meta={"provider": ..., "model": ...},
+        )
+
+    # 后台写入,不阻塞主流程
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_do())
+    except RuntimeError:
+        pass  # 同步入口无 loop,跳过
+```
+
+**关键设计**:
+- `loop.create_task(_do())` 不 await,主流程返回时缓存可能还在写,但用户感知不到
+- DB 故障在 `safe_save_analysis` 内部 `except Exception: logger.warning(...)`,主流程完全无感
+- Pydantic v2 的 `model_dump()` 在提取层用,dict 在缓存层用,统一在 `_dump_model` 适配
+
+#### 4.10.3 面试题服务(`interview_service.py`)
+
+**核心思路**:
+1. 读缓存 → 拿到结构化 `resume_data` / `job_requirement` / `match_report`(全是 dict,无需再调抽取 LLM)
+2. 构造针对性 prompt,把 missing/partial 技能、JD 硬技能、项目经历精简化后塞入
+3. **只调 1 次 LLM** 生成 8–12 道题,LLMClient 自动重试 1 次
+
+**prompt 设计要点** `app/services/interview_service.py`:
+
+| 维度 | 规则 |
+|---|---|
+| 总数 | 8–12 道 |
+| 分类比例 | 技术 4–6 + 行为 2–3 + 项目深挖 2–3 + 情景 0–1 |
+| 难度分配 | missing → hard · partial → medium/hard · matched → easy(仅补量) |
+| 必含字段 | category / difficulty / question / intent / suggested_answer_direction |
+| 选填字段 | related_skill(关联技能缺口) · related_jd_requirement(关联 JD 原文) |
+| 措辞 | 面试官口吻,具体有深度,< 100 字 |
+| 答题方向 | 3–5 个关键要点,**非完整答案** |
+
+**服务签名**:
+```python
+class InterviewService:
+    def __init__(self, llm: Optional[LLMClient] = None): ...
+    async def predict(self, trace_id: str) -> dict:
+        # 1. 读缓存(NotFoundError if 不存在)
+        # 2. 构造 prompt
+        # 3. LLM.chat_json(schema=InterviewPredictionOutput, max_retries=1)
+        # 4. 返回 {"trace_id": ..., "interview_questions": {...}}
+```
+
+#### 4.10.4 API 设计
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/v1/interview/predict` | 非流式(等 LLM 完成一次性返回) |
+| `POST` | `/api/v1/interview/predict/stream` | NDJSON 流式(与主分析同事件格式) |
+| `GET`  | `/api/v1/cache` | 列表(分页) |
+| `GET`  | `/api/v1/cache/{trace_id}` | 单条摘要 |
+| `DELETE` | `/api/v1/cache/{trace_id}` | 删除单条 |
+| `DELETE` | `/api/v1/cache` | 清理过期(基于 CACHE_TTL_DAYS) |
+
+**流式事件格式**(与 `/analyze/stream` 对齐):
+
+```json
+{"type":"meta","trace_id":"...","stages":[...]}
+{"type":"stage_start","stage":"predict"}
+{"type":"progress","stage":"predict","percent":10,"message":"读取分析缓存…"}
+{"type":"progress","stage":"predict","percent":45,"message":"LLM 已生成 1200 字符"}
+{"type":"progress","stage":"predict","percent":100,"message":"生成完成"}
+{"type":"stage_end","stage":"predict"}
+{"type":"done","data":{"trace_id":"...","interview_questions":{...}},"duration_ms":12345}
+```
+
+**错误码映射**:
+
+| 异常 | HTTP | code |
+|---|---|---|
+| DB 不可用(未装 asyncpg/未启 PG) | 503 | `cache_unavailable` / `service_unavailable` |
+| trace_id 不存在或已过期 | 404 | `not_found` |
+| LLM 输出无法解析(重试 1 次后仍失败) | 500 | `extract_error` |
+
+#### 4.10.5 前端页面(`interview.{html,css,js}`)
+
+**页面布局**(单页 SPA 风格):报头 → 摘要卡 → 启动区 → 进度条(生成中) → 分类卡(技术/行为/项目/情景) → 备考建议。
+
+**JS 关键点** `static/interview.js`:
+
+- 入口:URL `?trace_id=xxx` → `GET /api/v1/cache/{trace_id}` 拉摘要
+- 降级:无 trace_id / 缓存不存在 → 显示"请先在分析台完成分析"卡 + "前往分析台" CTA
+- 流式:复用 NDJSON 消费模式(与 `app.js` 的 `consumeStream` 同构)
+- 渲染:固定 4 类顺序(技术 → 行为 → 项目 → 情景),空类自动跳过
+- 交互:分类卡默认展开,点头部可折叠;`details` 元素展开意图/答题方向
+- 模板:用 `<template>` + `cloneNode` 复用 DOM 模板(避免 innerHTML 注入)
+
+**主页面入口** `static/index.html`:
+
+报告尾部新增 CTA 区(分析完成后由 `app.js` 渲染时显示):
+
+```html
+<section class="predict-cta" id="predictCta" hidden>
+  <div class="pcta-ico">🎯</div>
+  <div class="pcta-body">
+    <h3>预测面试题</h3>
+    <p>基于本次分析结果,生成 8–12 道针对性面试题…</p>
+  </div>
+  <a class="pcta-btn" id="predictBtn" href="#">前往预测 →</a>
+</section>
+```
+
+`app.js` 报告渲染完成时:
+```js
+if (predictCta && predictBtn && traceId) {
+  predictBtn.href = `/interview?trace_id=${encodeURIComponent(traceId)}`;
+  predictCta.hidden = false;
+}
+```
+
+#### 4.10.6 关键设计决策对照
+
+| 决策 | 备选 | 理由 |
+|---|---|---|
+| 独立页面 `/interview` | 嵌入主报告尾部 | 题目量大(8–12 道),独立 URL 便于分享/刷新/独立调试 |
+| 独立 API `/interview/predict` | 复用 `/analyze` | 复用 analyze 必须传完整文件,缓存 + 一次 LLM 优势尽失 |
+| `safe_save_analysis` 降级 | 主流程 try/except | 业务异常语义清晰:DB 不可用 ≠ 主分析失败 |
+| JSONB 存完整数据 | 每字段一列 | Pydantic 模型字段多且演进频繁,JSONB 避免列爆炸 |
+| 标量摘要 + JSONB 双轨 | 全 JSONB | 列表页性能差(250KB → 5KB 优化) |
+| 后台 `create_task` 写缓存 | 同步 `await save` | 不阻塞主流程返回,DB 慢也不影响用户体验 |
+| 流式端点用 queue + 后台线程 | 改成同步 | 与主分析接口事件格式一致,前端可复用 NDJSON 消费代码 |
+| 缓存端点失败时返 503 | 返 500 | 业务语义明确:`cache_unavailable` 是临时性,可重试 |
+
+#### 4.10.7 端到端冒烟测试结果
+
+| # | 端点 | DB 不可用 | DB 可用 | 期望 |
+|---|---|---|---|---|
+| 1 | `GET /app` | 200 | 200 | 主分析入口(原功能不变) |
+| 2 | `GET /interview` | 200 | 200 | 预测页面(新) |
+| 3 | `GET /interview?trace_id=不存在` | 200(降级提示) | 200(降级提示) | 显示"请先在分析台分析" |
+| 4 | `POST /api/v1/interview/predict` | **503** | 200 | DB 不可用时降级,可用时正常 |
+| 5 | `POST /api/v1/interview/predict/stream` | 200(NDJSON error) | 200(NDJSON done) | 流式事件正确 |
+| 6 | `GET /api/v1/cache` | **503** | 200 | 列表分页 |
+| 7 | `GET /api/v1/cache/{id}` | 503 | 200 / 404 | 摘要/不存在 |
+| 8 | `DELETE /api/v1/cache/{id}` | 503 | 200 / 404 | 删除 |
+| 9 | `DELETE /api/v1/cache` | 503 | 200 | 清理过期 |
+| 10 | `GET /api/v1/health` | 200 | 200 | 主分析(原功能不变) |
+| 11 | `POST /api/v1/analyze` | 200 | 200 | **主分析不受 DB 状态影响** |
+
+**核心降级验证**(DB 不可用):
+
+```
+2026-06-10 17:52:03 | INFO    | app.main | 应用启动: 求职分析智能体 v0.2.0
+2026-06-10 17:52:03 | WARNING | app.main | 数据库不可用,缓存层降级(不影响主分析): No module named 'asyncpg'
+```
+
+启动日志明示降级,主分析端点仍正常返回,符合设计预期。
+
+---
+
+### 4.11 工作台持久化 + 面试台贯通(本次更新)
+
+#### 背景
+
+上一版(§4.10)只让数据库"有数据",但**没有把数据用起来**。用户实际反馈的两个问题:
+
+| 症状 | 根因 |
+|---|---|
+| 「点面试台时岗位显示『未指定岗位』」 | `interview.js` 用错字段名(`job.title` 不存在,真实字段是 `job.position`) |
+| 「工作台看不到历史,刷新就没了」 | 完全没有 UI 入口,前端从未调过 `GET /api/v1/cache`;`/api/v1/cache/{trace_id}` 也只返回 5 字段摘要,前端拿不到完整数据 |
+| 「分析完跳面试台失败」 | `/interview` 没 trace_id 时只显示"请先分析"卡,**死路** |
+
+#### 4.11.1 后端:`/api/v1/cache/{trace_id}` 改全量返回
+
+**修改前**(只返 5 字段摘要):
+```json
+{
+  "trace_id": "...",
+  "created_at": "...",
+  "resume_name": "张三",
+  "job_title": "Python 后端工程师",
+  "overall_score": 64.1
+}
+```
+
+**修改后**(返 `load_analysis` 全量,嵌套结构):
+```json
+{
+  "trace_id": "...",
+  "created_at": "...",
+  "resume_data": { "name": "张三", "skills": [...], ... },
+  "job_requirement": { "position": "Python 后端工程师", "hard_skills": [...], ... },
+  "match_report": { "overall_score": 64.1, "skill_gap": {...}, ... },
+  "suggestions": [...],
+  "meta": { "provider": "deepseek", "model": "deepseek-v4-flash" }
+}
+```
+
+**实现** [app/api/routes_interview.py:305-321](file:///c:/Users/10408/Desktop/job/app/api/routes_interview.py#L305):
+
+```python
+@router.get("/cache/{trace_id}")
+async def get_cache(trace_id: str):
+    """获取单次分析的全量数据(resume_data / job_requirement / match_report / suggestions / meta)."""
+    try:
+        factory = get_session_factory()
+        async with factory() as session:
+            data = await load_analysis(session, trace_id)  # ← 改这里
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail={...})
+    if data is None:
+        raise HTTPException(status_code=404, detail={...})
+    return ApiResponse(success=True, data=data)
+```
+
+**权衡**:`load_summary` 暂时没人用但保留(后端零成本兼容),避免破坏其他端点。
+
+#### 4.11.2 前端:工作台历史记录面板
+
+**设计目标**:
+- 历史数据**自动可见**(用户打开 `/app` 就能看到过去跑过的报告)
+- 加载历史报告**无需重新调用 LLM**(直接调 `/api/v1/cache/{trace_id}` 拿全量)
+- 报告可**通过 URL 定位**(刷新/分享都能还原)
+- 当前报告项**高亮**
+
+**实现** [static/app.js:137-239](file:///c:/Users/10408/Desktop/job/static/app.js#L137):
+
+1. **面板注入**:在 `col-main` 最顶端(`#empty` / `#runView` / `#report` 之上)动态插入 `<section class="history-panel">`。
+2. **数据拉取**:`_loadHistory()` → `GET /api/v1/cache?limit=50` → 渲染每条为 `.hp-item`。
+3. **点击加载**:`.hp-item` 的 click 事件 → `_loadHistoricalReport(traceId)` → `GET /api/v1/cache/{traceId}` → 调现有 `renderReport(data, traceId, "—")` 渲染。
+4. **URL 持久化**:加载后 `history.replaceState({}, "", "?trace_id=xxx")`;启动时检查 URL 自动还原。
+5. **当前高亮**:`_highlightActiveInHistory()` 在 `_loadHistory` 末尾 + `renderReport` 末尾调用,当前报告项加 `.is-active`(绿色左边框)。
+
+**样式** [static/app.css:383-450](file:///c:/Users/10408/Desktop/job/static/app.css#L383):
+
+- 卡片式布局,深色背景与项目主色一致
+- 分数颜色:≥80 绿 / ≥60 琥珀 / <60 红
+- 当前项绿色左边框 + 浅绿底色
+- 滚动:`max-height: 220px` + `overflow-y: auto`
+
+#### 4.11.3 前端:报告顶部"生成面试题"跳转按钮
+
+**位置**:在 `#report` 容器**最顶端**(`<header class="report-head">` 之上),作为醒目操作栏。
+
+**HTML 占位** [static/index.html:138-141](file:///c:/Users/10408/Desktop/job/static/index.html#L138):
+
+```html
+<article class="report" id="report" hidden>
+  <div class="report-actions" id="reportActions" hidden>
+    <a class="btn-iv" id="btnGoInterview" href="#">🎯 基于此报告生成面试题 →</a>
+  </div>
+  <header class="report-head">...</header>
+  ...
+</article>
+```
+
+**JS 绑定** [static/app.js:407-413](file:///c:/Users/10408/Desktop/job/static/app.js#L407):
+
+```js
+_currentTraceId = traceId || data.trace_id || null;
+if (_currentTraceId) {
+  $("#btnGoInterview").href = `/interview?trace_id=${encodeURIComponent(_currentTraceId)}`;
+  $("#reportActions").hidden = false;
+}
+```
+
+**样式**:`.btn-iv` 用主橙色 `--orange`,带 hover 亮度变化,符合 CTA 视觉惯例。
+
+#### 4.11.4 前端:面试台无 trace_id 兜底表单
+
+**修改前**(死路):
+```html
+<section id="fallback">
+  <p>请先在分析台完成分析</p>
+  <a href="/app">前往分析台</a>
+</section>
+```
+
+**修改后**(给 trace_id 输入框):
+```html
+<section id="fallback">
+  <p id="fallbackMsg">...</p>
+  <form id="traceForm">
+    <input id="traceInput" placeholder="例如:68454ea0-..." />
+    <button>加载 →</button>
+  </form>
+  <div>不知道 trace_id?回 <a href="/app">/app</a> 工作台历史面板点击任一条报告即可。</div>
+</section>
+```
+
+**JS 提交** [static/interview.js:79-97](file:///c:/Users/10408/Desktop/job/static/interview.js#L79):
+
+```js
+form.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = $("#traceInput").value.trim();
+  if (!v) return;
+  const url = new URL(location.href);
+  url.searchParams.set("trace_id", v);
+  location.href = url.toString();   // 触发 reload + bootstrap 重跑
+});
+```
+
+**防重复绑定**:用 `form._wired` 标记位(因为 `showFallback` 可能被多次调用)。
+
+#### 4.11.5 Bug 修复:`renderSummary` 字段名错配
+
+**现象**
+
+打开 `/interview?trace_id=xxx` 时,摘要卡显示「**未指定岗位**」,即使库里 `job_requirement.position` 有值。
+
+**根因** [static/interview.js:102-119](file:///c:/Users/10408/Desktop/job/static/interview.js#L102) 的 `renderSummary`:
+
+```js
+// 错的
+const title = raw.job_title || job.title || "未指定岗位";
+//                              ^^^^^^^^^^ ← 真实字段是 job.position
+```
+
+数据库 `job_requirement` 字段(由 `job_extractor.py` 决定):
+```json
+{
+  "position": "Python 后端工程师 (LLM 方向)",  // ← 真实存在
+  "company": null, "location": null,
+  "keywords": [...], "hard_skills": [...], "soft_skills": [...],
+  "responsibilities": [...], "experience": [...], "education": [...],
+  "salary_range": null, "confidence": 1.0
+  // 没有 "title" 字段
+}
+```
+
+**修复**:按 `position` → `title` → 摘要格式 `job_title` 顺序回退:
+
+```js
+const title = raw.job_title || job.position || job.title || "未指定岗位";
+```
+
+**调试方法**:`python -c "import asyncio, asyncpg; ..."` 直接查 DB 的 `job_requirement` 字段,**不要靠 IDE 自动补全猜字段名**。
+
+#### 4.11.6 涉及文件清单
+
+| 文件 | 变更 |
+|---|---|
+| `app/api/routes_interview.py` | `get_cache` 改用 `load_analysis` 返全量 |
+| `static/app.js` | +110 行(历史面板、加载函数、URL 持久化、操作栏跳转) |
+| `static/index.html` | +5 行(reportActions 占位) |
+| `static/app.css` | +70 行(.history-panel / .btn-iv 样式) |
+| `static/interview.js` | renderSummary 字段名修复;showFallback 绑 form |
+| `static/interview.html` | fallback 区加 traceForm |
+| `static/interview.css` | +25 行(.fb-form 等兜底表单样式) |
+
+#### 4.11.7 端到端验证清单
+
+| # | 步骤 | 预期 |
+|---|---|---|
+| ① | `curl /api/v1/cache?limit=10` | 200,返回 items 列表(标量摘要) |
+| ② | `curl /api/v1/cache/{trace_id}` | 200,**7 keys**:trace_id/created_at/resume_data/job_requirement/match_report/suggestions/meta |
+| ③ | 浏览器 `/app`,硬刷 | 顶部"历史分析"面板显示 2 条记录,带分数 + 候选人 + 岗位 + 时间 |
+| ④ | 点击任一条历史 | 报告区加载并渲染,URL 变为 `?trace_id=xxx`,该项高亮 |
+| ⑤ | 刷新页面 | URL 仍带 trace_id,报告**自动还原** |
+| ⑥ | 报告顶部 CTA | 显示「🎯 基于此报告生成面试题 →」橙色按钮 |
+| ⑦ | 点击 CTA | 跳 `/interview?trace_id=xxx`,摘要卡岗位名**正确显示** |
+| ⑧ | 直接访问 `/interview`(无 trace_id) | 显示输入框 + "去工作台"提示 |
+| ⑨ | 输入框填 trace_id 提交 | URL 跳转,bootstrap 重新跑,摘要卡正常显示 |
+
+#### 4.11.8 决策回顾(为什么这样做)
+
+| 决策 | 备选 | 理由 |
+|---|---|---|
+| `get_cache` 改全量 | 保留摘要 + 加新端点 `/cache/{id}/full` | 一个端点一次拿够,前端不用两次请求;列表页继续用 `list_analyses` 返摘要不变 |
+| 历史面板 JS 动态注入 | 改 `index.html` 加静态结构 | 静态 HTML 改动会扩散到 git diff,JS 注入把"实现"留在 JS 文件 |
+| URL 持久化(`?trace_id=xxx`) | localStorage | URL 是**分享友好**的,localStorage 受同源限制;`history.replaceState` 不刷页 |
+| 报告上方 CTA | 报告下方 CTA | 用户分析完第一反应是"下一步做什么",上方 CTA 第一眼可见;`report-actions` 容器有渐变背景突出 |
+| 面试台输入 trace_id 兜底 | 历史报告下拉列表 | UI 更轻,实现更小;**下拉需要再调一次 `/api/v1/cache`**,输入框一行提交就完事 |
+| `position` 字段名 | 重命名 DB 列 | 影响所有历史数据 + LLM 抽取 prompt,改前端更便宜 |
+| 不加 `--reload-include` 改 uvicorn reload 配置 | 加配置防 WatchFiles 误触 | 测试脚本放项目根目录会触发 reload,改 watch 规则治标不治本;直接禁止根目录放临时文件 |
+
+---
+
 ## 5. 验证清单
 
 ### 5.1 基础(8 条)
@@ -882,6 +1394,36 @@ InvalidUpdateError: Expected node inputs to update at least one of [...], got {}
 | 23 | 同步 `/analyze` 不再 500 | `curl.exe -F resume=@<200KB.txt> -F job_description=x /api/v1/analyze` | **HTTP 200**,含 `match_report.overall_score` |
 | 24 | 流式 `done.data` 不再空 | `curl.exe -N -F resume=@<200KB.txt> -F job_description=x /api/v1/analyze/stream` 收尾行 | `match_report` 非 null,`suggestions` ≥ 3 条 |
 | 25 | `_showRunView` 不再抛 TypeError | 浏览器控制台 → 点「开始分析」 | 0 个红色 error |
+
+### 5.6 面试题预测(11 条)
+
+| # | 项 | 命令 / 步骤 | 预期 |
+|---|---|---|---|
+| 26 | 面试题页面可达 | `curl.exe -o nul -w "%{http_code}" http://localhost:8000/interview` | `200` |
+| 27 | 主分析入口不变 | `curl.exe -o nul -w "%{http_code}" http://localhost:8000/app` | `200` |
+| 28 | 缓存不可用降级(无 PG) | `curl.exe http://localhost:8000/api/v1/cache` | `503 {"code":"cache_unavailable",...}` |
+| 29 | 面试题预测降级(无 PG) | `curl.exe -X POST http://localhost:8000/api/v1/interview/predict -H "Content-Type: application/json" -d "{\"trace_id\":\"x\"}"` | `503 {"code":"service_unavailable",...}` |
+| 30 | 流式预测降级(无 PG) | `curl.exe -N -X POST http://localhost:8000/api/v1/interview/predict/stream -H "Content-Type: application/json" -d "{\"trace_id\":\"x\"}"` | `200`,首行 `{"type":"meta",...}`,后续 `{"type":"error",...}` |
+| 31 | 主分析端点不受 DB 状态影响 | `curl.exe -F resume=@<200KB.txt> -F job_description=x http://localhost:8000/api/v1/analyze` | `200`,正常返回分析结果 |
+| 32 | 启动日志明示降级 | 启动时观察日志 | `WARNING 数据库不可用,缓存层降级(不影响主分析)` |
+| 33 | Alembic 迁移 | `alembic upgrade head` | `Running upgrade -> 0001_add_analysis_cache` |
+| 34 | 表结构验证 | `psql -U job -d job_analyzer -c "\d analysis_cache"` | 含 `trace_id` / `resume_data(JSONB)` / `created_at` 等列 |
+| 35 | ORM 模型导入 | `python -c "from app.models.cache import AnalysisCache; print(AnalysisCache.__tablename__)"` | `analysis_cache` |
+| 36 | 缓存服务接口导入 | `python -c "from app.core.cache import save_analysis, load_analysis, list_analyses, delete_analysis, cleanup_expired, safe_save_analysis"` | 静默无报错 |
+
+### 5.7 工作台持久化(本次更新 9 条)
+
+| # | 项 | 命令 / 步骤 | 预期 |
+|---|---|---|---|
+| 37 | 缓存列表接口 | `curl.exe http://localhost:8000/api/v1/cache?limit=10` | `200`,`items: [...]`(摘要列表) |
+| 38 | 缓存单条返全量 | `curl.exe http://localhost:8000/api/v1/cache/{trace_id}` | `200`,**7 keys**:trace_id/created_at/resume_data/job_requirement/match_report/suggestions/meta |
+| 39 | 历史面板渲染 | 浏览器 `/app` + `Ctrl+Shift+R` | 顶部「历史分析」面板出现,显示 2 条记录,带分数 + 候选人 + 岗位 + 时间 |
+| 40 | 点击历史加载报告 | 点击 `.hp-item` | 报告区渲染,URL 变为 `?trace_id=xxx`,该项 `.is-active` 高亮 |
+| 41 | URL 持久化(刷新) | 加载报告后按 F5 | URL 仍带 `?trace_id=xxx`,报告**自动还原** |
+| 42 | 报告顶部 CTA | 报告加载后 | 顶部显示「🎯 基于此报告生成面试题 →」橙色按钮 |
+| 43 | CTA 跳转 | 点击 CTA | 跳 `/interview?trace_id=xxx`,摘要卡**岗位名正确**(验证 `job.position` 字段) |
+| 44 | 面试台无 trace_id 兜底 | 直接访问 `/interview` | 显示 `trace_id` 输入框 + 回 `/app` 提示 |
+| 45 | trace_id 提交加载 | 输入框填 trace_id + 提交 | URL 跳转,bootstrap 重跑,摘要卡正常显示 |
 
 ---
 
@@ -987,7 +1529,10 @@ Invoke-RestMethod -Uri "https://api.github.com/repos/<owner>/<repo>/contents/<pa
 | 2026-06-06 | LangGraph 并行匹配改造:Send fan-out/fan-in 替代顺序边,三个匹配节点真正并行执行 |
 | 2026-06-06 | 流式进度推送改造:token 级实时进度 + asyncio.Queue + 线程安全桥接,前端进度条不再黑盒等待 |
 | 2026-06-06 | 并行抽取改造:parse_resume / parse_job 从 START 并行扇出,抽取阶段耗时从串行之和降为取最长者 |
+| 2026-06-10 | 面试题预测模块上线:独立 `/interview` 页面 + PostgreSQL 持久化缓存层 + 工作流零侵入,详见 §4.10 |
+| 2026-06-11 | 工作台持久化打通:历史记录面板 + 报告顶部"生成面试题"CTA + URL 持久化(`?trace_id=xxx`)+ 面试台 trace_id 兜底表单,详见 §4.11 |
+| 2026-06-11 | Bug 修复:面试台 `renderSummary` 用错字段(`job.title` 改为 `job.position`),见 §4.11.5 |
 
 ---
 
-**最后更新**:2026-06-06 · 维护者:`cxzrdxy`
+**最后更新**:2026-06-11 · 维护者:`cxzrdxy`

@@ -265,9 +265,18 @@ textarea#jd:focus { border-color: var(--orange); }
   margin: 0 0 6px;
   font-style: italic;
 }
-.headline::first-letter {
-  font-size: 1.2em; color: var(--orange);
+.headline .hl-strong {
+  font-weight: 900;
+  color: var(--orange);
+  letter-spacing: 0.01em;
+  font-size: 1.2em;          /* 方案 B:让"岗位匹配"整段比"诊断"大 1.2 倍,前 4 字保持同大 */
 }
+/* 首字母放大 + 橙色:仅作用于"岗"字(整段 <h1> 的第一个字符).
+   注意:如果以后 <h1> 内部第一个字符不再是"岗",这个样式会自动迁移到新首字.
+   如果需要"前 4 字"统一强调,改用 .headline .hl-strong(.hl-strong 现在已经覆盖"岗位匹配"4 字). */
+/*.headline::first-letter {
+  font-size: 1.2em; color: var(--orange);
+}*/
 .byline {
   font-size: 11.5px; color: var(--text-dim);
   display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
@@ -476,6 +485,35 @@ textarea#jd:focus { border-color: var(--orange); }
   background: linear-gradient(180deg, #131316, #0f0f12);
 }
 
+/* ============ Predict CTA(预测面试题入口) ============ */
+.predict-cta {
+  display: grid; grid-template-columns: auto 1fr auto;
+  gap: 18px; align-items: center;
+  padding: 18px 26px;
+  margin-top: 16px;
+  border: 1px solid var(--orange-dim);
+  background: linear-gradient(180deg, #1f1610, #131316);
+}
+.predict-cta .pcta-ico { font-size: 32px; }
+.predict-cta .pcta-body h3 {
+  margin: 0 0 4px; font-size: 15px; font-weight: 700;
+  color: var(--text);
+}
+.predict-cta .pcta-body p {
+  margin: 0; color: var(--text-dim); font-size: 12.5px;
+}
+.predict-cta .pcta-btn {
+  display: inline-block;
+  border: 1px solid var(--orange);
+  color: var(--orange);
+  padding: 10px 22px;
+  font-size: 13px; font-weight: 700;
+  letter-spacing: 0.08em;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+.predict-cta .pcta-btn:hover { background: var(--orange); color: #111; }
+
 /* ============ Run View (运行态视图) ============ */
 .run-view {
   border: 1px solid var(--line);
@@ -587,3 +625,81 @@ textarea#jd:focus { border-color: var(--orange); }
   from { transform: translate(-50%, 8px); opacity: 0; }
   to   { transform: translate(-50%, 0);   opacity: 1; }
 }
+
+/* ============ 历史记录面板(history panel) ============ */
+.history-panel {
+  border: 1px solid var(--line);
+  background: var(--bg-1);
+  margin-bottom: 16px;
+}
+.history-panel .hp-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255,255,255,0.015);
+}
+.history-panel .hp-title {
+  font-size: 11px; font-weight: 700;
+  color: var(--text);
+  text-transform: uppercase; letter-spacing: 0.18em;
+}
+.history-panel .hp-title::before { content: "▸ "; color: var(--orange); }
+.history-panel .hp-meta { color: var(--text-mute); font-size: 11px; }
+.history-panel .hp-list {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 220px; overflow-y: auto;
+}
+.history-panel .hp-item {
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  gap: 12px; align-items: center;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.history-panel .hp-item:last-child { border-bottom: none; }
+.history-panel .hp-item:hover { background: rgba(255,122,26,0.06); }
+.history-panel .hp-item.is-active {
+  background: rgba(0,217,126,0.08);
+  border-left: 3px solid var(--green);
+  padding-left: 11px;
+}
+.history-panel .hp-score {
+  font-family: "Newsreader", serif;
+  font-size: 22px; font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.history-panel .hp-score.ok   { color: var(--green); }
+.history-panel .hp-score.warn { color: var(--amber); }
+.history-panel .hp-score.bad  { color: var(--red); }
+.history-panel .hp-name { font-size: 13px; color: var(--text); }
+.history-panel .hp-job  { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+.history-panel .hp-time { font-size: 10.5px; color: var(--text-mute); font-variant-numeric: tabular-nums; }
+.history-panel .hp-empty {
+  padding: 18px; text-align: center;
+  color: var(--text-mute); font-size: 12px; font-style: italic;
+}
+
+/* ============ 报告上方操作栏(report actions) ============ */
+.report-actions {
+  display: flex; justify-content: flex-end; align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(90deg, rgba(255,122,26,0.12), rgba(255,122,26,0.02));
+  border-bottom: 1px solid var(--line);
+}
+.btn-iv {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px;
+  font-size: 12px; font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--bg);
+  background: var(--orange);
+  border: 1px solid var(--orange);
+  cursor: pointer;
+  transition: filter 0.1s, transform 0.05s;
+}
+.btn-iv:hover { filter: brightness(1.1); color: var(--bg); }
+.btn-iv:active { transform: translateY(1px); }

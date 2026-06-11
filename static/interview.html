@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>面试题预测 · 求职分析智能体</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;0,800;1,400&family=Newsreader:ital,wght@0,400;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css?v=2" />
+  <link rel="stylesheet" href="/static/interview.css?v=1" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="scan" aria-hidden="true"></div>
+
+  <header class="top">
+    <div class="top-left">
+      <span class="ticker">JOB_ANALYZER</span>
+      <span class="dim">/</span>
+      <span class="section-name">interview bench</span>
+    </div>
+    <nav class="top-nav">
+      <a href="/app">工作台</a>
+      <a href="/interview" class="active">面试台</a>
+      <a href="/">服务台</a>
+      <a href="/docs" target="_blank" rel="noopener">API 文档</a>
+    </nav>
+    <div class="top-right">
+      <span class="ts" id="ts">--:--:--</span>
+      <span class="live"><span class="dot"></span>LIVE</span>
+    </div>
+  </header>
+
+  <main class="page">
+    <!-- 状态:无 trace_id 或缓存不存在 -->
+    <section class="card fallback" id="fallback" hidden>
+      <h2>暂无分析数据</h2>
+      <p id="fallbackMsg">请先在分析台完成简历-JD 匹配分析,再回来生成面试题预测。</p>
+      <form id="traceForm" class="fb-form">
+        <label class="fb-label" for="traceInput">输入 trace_id 加载历史分析</label>
+        <div class="fb-row">
+          <input type="text" id="traceInput" class="fb-input" placeholder="例如:68454ea0-f4d3-..." autocomplete="off" />
+          <button type="submit" class="fb-btn">加载 →</button>
+        </div>
+        <div class="fb-hint">不知道 trace_id?回 <a href="/app">/app</a> 工作台历史面板点击任一条报告即可。</div>
+      </form>
+    </section>
+
+    <!-- 主界面 -->
+    <section class="iv-shell" id="ivShell" hidden>
+      <!-- 报头:返回 + 标题 -->
+      <header class="iv-head">
+        <a class="iv-back" href="/app">← 返回分析报告</a>
+        <h1 class="iv-title">面试题预测</h1>
+        <p class="iv-sub">基于本次简历-JD 匹配结果,生成针对性面试题</p>
+      </header>
+
+      <!-- 分析摘要卡 -->
+      <section class="summary-card" id="summaryCard">
+        <div class="sc-kicker">分析摘要 · SUMMARY</div>
+        <div class="sc-grid">
+          <div class="sc-cell">
+            <div class="sc-k">候选人</div>
+            <div class="sc-v" id="scName">—</div>
+          </div>
+          <div class="sc-cell">
+            <div class="sc-k">岗位</div>
+            <div class="sc-v" id="scJob">—</div>
+          </div>
+          <div class="sc-cell">
+            <div class="sc-k">综合分</div>
+            <div class="sc-v" id="scScore">—</div>
+          </div>
+          <div class="sc-cell">
+            <div class="sc-k">trace_id</div>
+            <div class="sc-v mono" id="scTrace">—</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 启动区 -->
+      <section class="start-card" id="startCard">
+        <div class="start-ico">🎯</div>
+        <div class="start-body">
+          <h3>开始预测面试题</h3>
+          <p>基于本次分析结果,只调用一次 LLM 生成 8–12 道针对性面试题,耗时约 20–40 秒。</p>
+        </div>
+        <button class="btn-primary" id="btnPredict">开始预测</button>
+      </section>
+
+      <!-- 进度条 -->
+      <section class="progress-card" id="progressCard" hidden>
+        <div class="pc-head">
+          <span class="pc-kicker">正在生成 · GENERATING</span>
+          <span class="pc-pct" id="pcPct">0%</span>
+        </div>
+        <div class="pc-bar"><div class="pc-fill" id="pcFill"></div></div>
+        <div class="pc-msg" id="pcMsg">准备中…</div>
+      </section>
+
+      <!-- 错误提示 -->
+      <section class="err-card" id="errCard" hidden>
+        <strong>生成失败</strong>
+        <p id="errMsg">—</p>
+      </section>
+
+      <!-- 题目结果(按类别分组) -->
+      <section class="result" id="result" hidden>
+        <div class="res-head">
+          <h2>预测结果</h2>
+          <div class="res-stats">
+            <span id="resCount">0 道题</span>
+            <span class="dim">·</span>
+            <span id="resTime">—</span>
+          </div>
+        </div>
+        <div id="catList" class="cat-list">
+          <!-- JS 注入分类卡片 -->
+        </div>
+
+        <!-- 备考建议 -->
+        <section class="summary-card summary-advice">
+          <div class="sc-kicker">备考建议 · SUMMARY</div>
+          <p class="advice-text" id="adviceText">—</p>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <!-- 模板:题目卡片(JS 复制) -->
+  <template id="tplCat">
+    <section class="cat-card">
+      <header class="cat-head" data-toggle>
+        <span class="cat-num"></span>
+        <h3 class="cat-title"></h3>
+        <span class="cat-count"></span>
+        <span class="cat-toggle">▾</span>
+      </header>
+      <div class="cat-body" data-body>
+        <!-- 问题列表 -->
+      </div>
+    </section>
+  </template>
+
+  <template id="tplQ">
+    <article class="q-card">
+      <header class="q-head">
+        <span class="q-diff" data-diff>—</span>
+        <span class="q-skill" data-skill hidden></span>
+      </header>
+      <p class="q-q" data-q></p>
+      <div class="q-details">
+        <details class="q-detail">
+          <summary>🎯 考察意图</summary>
+          <p data-intent></p>
+        </details>
+        <details class="q-detail">
+          <summary>💡 建议答题方向</summary>
+          <p data-direction></p>
+        </details>
+        <div class="q-jd" data-jd hidden>📌 对应 JD:&nbsp;<span data-jd-text></span></div>
+      </div>
+    </article>
+  </template>
+
+  <script src="/static/interview.js?v=1"></script>
+</body>
+</html>

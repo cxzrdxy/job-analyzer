@@ -8,6 +8,9 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  // ---- 当前正在展示的报告 trace_id(用于历史面板高亮 + 跳转按钮) ----
+  let _currentTraceId = null;
+
   // ---- 时钟 ----
   const ts = $("#ts");
   const tick = () => {
@@ -130,6 +133,110 @@
   const runSteps = $("#runSteps");
 
   let timerInterval = null;
+
+  // ============================================================
+  // 历史记录面板
+  // ============================================================
+  // 注入到 col-main 最顶端(在 #empty / #runView / #report 之上)
+  (function injectHistoryPanel() {
+    const colMain = document.querySelector(".col-main");
+    if (!colMain) return;
+    const panel = document.createElement("section");
+    panel.className = "history-panel";
+    panel.id = "historyPanel";
+    panel.innerHTML = `
+      <div class="hp-head">
+        <span class="hp-title">历史分析 · history</span>
+        <span class="hp-meta" id="hpMeta">加载中…</span>
+      </div>
+      <ul class="hp-list" id="hpList"></ul>
+    `;
+    colMain.insertBefore(panel, colMain.firstChild);
+  })();
+
+  function _scoreClass(score) {
+    const s = Number(score) || 0;
+    if (s >= 80) return "ok";
+    if (s >= 60) return "warn";
+    return "bad";
+  }
+
+  function _formatTime(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "—";
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    } catch {
+      return "—";
+    }
+  }
+
+  async function _loadHistory() {
+    const meta = $("#hpMeta");
+    const list = $("#hpList");
+    if (!list) return;
+    list.innerHTML = `<li class="hp-empty">加载中…</li>`;
+    try {
+      const r = await fetch("/api/v1/cache?limit=50");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const items = (j.data && j.data.items) || [];
+      if (items.length === 0) {
+        list.innerHTML = `<li class="hp-empty">暂无历史分析 · 跑完一次后会出现在这里</li>`;
+        meta.textContent = "0 条";
+        return;
+      }
+      meta.textContent = `${items.length} 条 · 最新优先`;
+      list.innerHTML = "";
+      for (const it of items) {
+        const li = document.createElement("li");
+        li.className = "hp-item";
+        li.dataset.traceId = it.trace_id;
+        li.innerHTML = `
+          <div class="hp-score ${_scoreClass(it.overall_score)}">${(Number(it.overall_score) || 0).toFixed(1)}</div>
+          <div>
+            <div class="hp-name">${escape(it.resume_name || "未命名候选人")}</div>
+            <div class="hp-job">${escape(it.job_title || "未指定岗位")} · ${it.trace_id.slice(0, 8)}…</div>
+          </div>
+          <div class="hp-time">${_formatTime(it.created_at)}</div>
+        `;
+        li.addEventListener("click", () => _loadHistoricalReport(it.trace_id));
+        list.appendChild(li);
+      }
+      _highlightActiveInHistory();
+    } catch (err) {
+      list.innerHTML = `<li class="hp-empty">历史加载失败:${escape(err.message)}</li>`;
+      meta.textContent = "—";
+    }
+  }
+
+  function _highlightActiveInHistory() {
+    $$("#hpList .hp-item").forEach((li) => {
+      li.classList.toggle("is-active", li.dataset.traceId === _currentTraceId);
+    });
+  }
+
+  async function _loadHistoricalReport(traceId) {
+    try {
+      const r = await fetch(`/api/v1/cache/${encodeURIComponent(traceId)}`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message || "读取失败");
+      const data = j.data;
+      // 后端 load_analysis 返回的字段结构:resume_data / job_requirement / match_report / suggestions / meta
+      // renderReport 只看 match_report / suggestions / meta,直接兼容
+      renderReport(data, data.trace_id || traceId, "—");
+      // 同步 URL,刷新/分享都能定位
+      const url = new URL(location.href);
+      url.searchParams.set("trace_id", traceId);
+      history.replaceState({}, "", url.toString());
+      showToast(`已加载历史报告 · ${data.resume_data && data.resume_data.name ? data.resume_data.name : ""}`);
+    } catch (err) {
+      showToast(`加载历史报告失败: ${err.message}`, true);
+    }
+  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -400,8 +507,18 @@
     const sug = Array.isArray(data.suggestions) ? data.suggestions : [];
     const meta = data.meta || {};
 
+    // 记下当前 trace_id(给历史高亮 + 跳转按钮用)
+    _currentTraceId = traceId || data.trace_id || null;
+
+    // 报告上方操作栏:跳面试台
+    if (_currentTraceId) {
+      $("#btnGoInterview").href = `/interview?trace_id=${encodeURIComponent(_currentTraceId)}`;
+      $("#reportActions").hidden = false;
+    }
+
     // 报头
-    setText("#r_position", "岗位匹配诊断");
+    setText("#r_position_strong", "岗位匹配");
+    setText("#r_position_tail", "诊断");
     setText("#r_trace", traceId || (meta && meta.trace_id) || "—");
     setText("#r_time", new Date().toLocaleString("zh-CN", { hour12: false }));
 
@@ -469,6 +586,9 @@
     empty.hidden = true;
     report.hidden = false;
     report.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // 历史面板刷新 + 高亮当前
+    _loadHistory();
   }
 
   function statCell(k, v, cls) {
@@ -540,5 +660,16 @@
     if (s >= 65) return "整体方向匹配,但存在若干技能或经验缺口,可通过针对性项目与表达补强。";
     if (s >= 50) return "部分匹配。建议重写自我评价与项目段,突出与 JD 强相关的可量化成果。";
     return "匹配度较低,建议先评估是否投递;若投递,需大改简历结构、补足核心硬技能项目经验。";
+  }
+
+  // ============================================================
+  // 启动
+  // ============================================================
+  // 1. 加载历史记录
+  _loadHistory();
+  // 2. URL 上有 trace_id 就自动还原该报告(URL 持久化:刷新/分享都能定位)
+  const _initTraceId = new URLSearchParams(location.search).get("trace_id");
+  if (_initTraceId) {
+    _loadHistoricalReport(_initTraceId);
   }
 })();

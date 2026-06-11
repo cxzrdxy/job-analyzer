@@ -13,6 +13,7 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import router
+from app.api.routes_interview import router as interview_router
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.core.metrics import metrics
@@ -32,7 +33,22 @@ async def lifespan(app: FastAPI):
         settings.llm.provider,
         settings.llm.model,
     )
+    # 启动时尝试初始化数据库(失败不阻塞主流程,缓存为可选)
+    try:
+        from app.core.database import get_session_factory
+
+        get_session_factory()
+        logger.info("数据库引擎就绪")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("数据库不可用,缓存层降级(不影响主分析): %s", exc)
     yield
+    # 关闭数据库引擎
+    try:
+        from app.core.database import close_db
+
+        await close_db()
+    except Exception:  # noqa: BLE001
+        pass
     logger.info("应用关闭")
 
 
@@ -329,7 +345,7 @@ _INDEX_HTML = """<!doctype html>
   <div class="panel">
     <div class="panel-head">
       <span class="title">endpoints</span>
-      <span class="meta"><span class="live"></span>4 routes · {request_count} reqs · {error_count} errors</span>
+      <span class="meta"><span class="live"></span>10 routes · {request_count} reqs · {error_count} errors</span>
     </div>
     <table class="endpoints">
       <thead>
@@ -374,6 +390,54 @@ _INDEX_HTML = """<!doctype html>
           <td class="desc">resume · jd analysis · multipart</td>
           <td class="status"><span class="ready">ready</span></td>
           <td class="latency">{lat_analyze}</td>
+        </tr>
+        <tr onclick="location.href='/docs#/default/analyze_resume_stream_api_v1_analyze_stream_post'">
+          <td class="id">05</td>
+          <td class="method"><span class="tag post">POST</span></td>
+          <td class="path">/api/v1/analyze/stream</td>
+          <td class="desc">resume · jd analysis · ndjson stream</td>
+          <td class="status"><span class="ready">ready</span></td>
+          <td class="latency">{lat_analyze_stream}</td>
+        </tr>
+        <tr onclick="location.href='/docs#/default/predict_interview_api_v1_interview_predict_post'">
+          <td class="id">06</td>
+          <td class="method"><span class="tag post">POST</span></td>
+          <td class="path">/api/v1/interview/predict</td>
+          <td class="desc">interview questions prediction</td>
+          <td class="status"><span class="ready">ready</span></td>
+          <td class="latency">{lat_interview_predict}</td>
+        </tr>
+        <tr onclick="location.href='/docs#/default/predict_interview_stream_api_v1_interview_predict_stream_post'">
+          <td class="id">07</td>
+          <td class="method"><span class="tag post">POST</span></td>
+          <td class="path">/api/v1/interview/predict/stream</td>
+          <td class="desc">interview questions · ndjson stream</td>
+          <td class="status"><span class="ready">ready</span></td>
+          <td class="latency">{lat_interview_predict_stream}</td>
+        </tr>
+        <tr onclick="location.href='/docs#/default/list_cache_api_v1_cache_get'">
+          <td class="id">08</td>
+          <td class="method"><span class="tag get">GET</span></td>
+          <td class="path">/api/v1/cache</td>
+          <td class="desc">list cached analyses</td>
+          <td class="status"><span class="ready">ready</span></td>
+          <td class="latency">{lat_cache_list}</td>
+        </tr>
+        <tr onclick="location.href='/docs#/default/get_cache_api_v1_cache__trace_id__get'">
+          <td class="id">09</td>
+          <td class="method"><span class="tag get">GET</span></td>
+          <td class="path">/api/v1/cache/{trace_id}</td>
+          <td class="desc">get cached analysis by trace_id</td>
+          <td class="status"><span class="ready">ready</span></td>
+          <td class="latency">{lat_cache_get}</td>
+        </tr>
+        <tr onclick="location.href='/docs#/default/delete_cache_api_v1_cache__trace_id__delete'">
+          <td class="id">10</td>
+          <td class="method"><span class="tag post">DELETE</span></td>
+          <td class="path">/api/v1/cache/{trace_id}</td>
+          <td class="desc">delete cached analysis</td>
+          <td class="status"><span class="ready">ready</span></td>
+          <td class="latency">{lat_cache_delete}</td>
         </tr>
       </tbody>
     </table>
@@ -427,6 +491,12 @@ def build_index_html() -> str:
         lat_info=_format_latency_for("/api/v1/info", avg),
         lat_health=_format_latency_for("/api/v1/health", avg),
         lat_analyze=_format_latency_for("/api/v1/analyze", avg),
+        lat_analyze_stream=_format_latency_for("/api/v1/analyze/stream", avg),
+        lat_interview_predict=_format_latency_for("/api/v1/interview/predict", avg),
+        lat_interview_predict_stream=_format_latency_for("/api/v1/interview/predict/stream", avg),
+        lat_cache_list=_format_latency_for("/api/v1/cache", avg),
+        lat_cache_get=_format_latency_for("/api/v1/cache/{trace_id}", avg),
+        lat_cache_delete=_format_latency_for("/api/v1/cache/{trace_id}", avg),
         recent_log_html=_build_recent_log_html(snap["recent"]),
         recent_count=len(snap["recent"]),
     )
@@ -447,6 +517,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router, prefix="/api/v1")
+    app.include_router(interview_router, prefix="/api/v1")
 
     # 静态资源:/static/...
     app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -455,6 +526,10 @@ def create_app() -> FastAPI:
     @app.get("/app", response_class=HTMLResponse, include_in_schema=False)
     async def app_page() -> FileResponse:
         return FileResponse("static/index.html")
+
+    @app.get("/interview", response_class=HTMLResponse, include_in_schema=False)
+    async def interview_page() -> FileResponse:
+        return FileResponse("static/interview.html")
 
     @app.middleware("http")
     async def metrics_middleware(request: Request, call_next):

@@ -426,7 +426,7 @@ _INDEX_HTML = """<!doctype html>
         <tr onclick="location.href='/docs#/default/get_cache_api_v1_cache__trace_id__get'">
           <td class="id">09</td>
           <td class="method"><span class="tag get">GET</span></td>
-          <td class="path">/api/v1/cache/{trace_id}</td>
+          <td class="path">/api/v1/cache/{{trace_id}}</td>
           <td class="desc">get cached analysis by trace_id</td>
           <td class="status"><span class="ready">ready</span></td>
           <td class="latency">{lat_cache_get}</td>
@@ -434,7 +434,7 @@ _INDEX_HTML = """<!doctype html>
         <tr onclick="location.href='/docs#/default/delete_cache_api_v1_cache__trace_id__delete'">
           <td class="id">10</td>
           <td class="method"><span class="tag post">DELETE</span></td>
-          <td class="path">/api/v1/cache/{trace_id}</td>
+          <td class="path">/api/v1/cache/{{trace_id}}</td>
           <td class="desc">delete cached analysis</td>
           <td class="status"><span class="ready">ready</span></td>
           <td class="latency">{lat_cache_delete}</td>

@@ -350,6 +350,38 @@ textarea#jd:focus { border-color: var(--orange); }
   margin-bottom: 14px;
 }
 
+/* 评分理由 */
+.score-reasoning {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--orange);
+  background: rgba(255,122,26,0.04);
+}
+.sr-label {
+  font-size: 10px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--text-mute);
+  margin-bottom: 4px;
+}
+.sr-text {
+  font-size: 13px; color: var(--text); line-height: 1.6;
+}
+
+/* 亮点/短板标签 */
+.score-tags {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  margin-bottom: 14px;
+}
+.st-col { border: 1px solid var(--line); padding: 10px 14px; background: var(--bg-2); }
+.st-title {
+  font-size: 10.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.st-col ul { list-style: none; margin: 0; padding: 0; }
+.st-col li { font-size: 12.5px; margin: 3px 0; }
+.st-str li { color: var(--green); }
+.st-wk li { color: var(--red); }
+
 .stat-grid {
   display: grid; grid-template-columns: repeat(4, 1fr);
   gap: 1px; background: var(--line);

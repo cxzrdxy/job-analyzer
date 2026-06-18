@@ -1,0 +1,614 @@
+{
+  "started_at": "2026-06-18T16:20:02.560824",
+  "duration_s": 0.265,
+  "total": 67,
+  "passed": 67,
+  "failed": 0,
+  "error": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "name": "test_app_meta",
+      "module": "tests.unit.test_config",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_llm_settings_provider_default",
+      "module": "tests.unit.test_config",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_settings_singleton",
+      "module": "tests.unit.test_config",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_upload_settings_defaults",
+      "module": "tests.unit.test_config",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_app_error_http_status",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_error_inheritance",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_error_default_status",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_file_too_large",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_parse_error_status",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_unsupported_file_type",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_workflow_error_status",
+      "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_coerce_payload_list_to_dict",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_fill_missing_fields_defaults",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_fill_missing_fields_enum_correction",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_safe_json_loads_invalid_raises",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_safe_json_loads_list_extraction",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_safe_json_loads_plain",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_safe_json_loads_with_brace_extraction",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_safe_json_loads_with_markdown_fence",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_suggestion_list_output_max_constraint",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_suggestion_list_output_min_max",
+      "module": "tests.unit.test_llm_client",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_estimate_years_empty",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_estimate_years_overlapping",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_estimate_years_simple",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_experience_match_below_requirement",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_experience_match_meets_requirement",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_experience_match_no_requirement",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_keyword_match_all_present",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_keyword_match_empty_job_keywords",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_keyword_match_partial",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_parse_year_month_full",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_parse_year_month_year_only",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_skill_literal_match_basic",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_skill_literal_partial_match",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_skill_no_requirement",
+      "module": "tests.unit.test_matchers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_education_model",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_job_requirement_defaults",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_match_report_defaults",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_requirement_category_enum",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_resume_defaults",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_resume_project_experience",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_skill_gap_coverage_range",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_suggestion_model_dump_round_trip",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_suggestion_section_enum_values",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_work_experience_required_company",
+      "module": "tests.unit.test_models",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_clean_text_empty",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_clean_text_normalize_whitespace",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_docx_extractor_supports",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_text_from_bytes_unsupported",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 218.00000000803266,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_pdf_extractor_supports",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_txt_extractor_bytes",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 46.999999991385266,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_txt_extractor_supports",
+      "module": "tests.unit.test_parsers",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_compute_streaming_percent_in_range",
+      "module": "tests.unit.test_progress",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_set_get_current_stage",
+      "module": "tests.unit.test_progress",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_set_get_progress_callback",
+      "module": "tests.unit.test_progress",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_stage_by_node_and_key_consistency",
+      "module": "tests.unit.test_progress",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_stage_by_node_unknown",
+      "module": "tests.unit.test_progress",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_stages_non_empty",
+      "module": "tests.unit.test_progress",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_job_text_basic",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_resume_text_fallback_to_structured",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_resume_text_raw_preferred",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_resume_text_truncates",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_fallback_experience_gap",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_fallback_keywords",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_fallback_missing_skills",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_fallback_no_gaps",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_sort_priority_then_section",
+      "module": "tests.unit.test_suggestion_generator",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    }
+  ]
+}

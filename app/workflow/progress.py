@@ -5,57 +5,21 @@
 - ProgressEvent: NDJSON 行格式 TypedDict
 - stage_by_node(): LangGraph 节点名 → StageDef 映射
 
-线程安全补充:
+线程安全:
 - LangGraph astream() 在线程池中执行同步节点,ContextVar 无法跨线程传播
-- 因此额外提供 _shared 系列函数,用 threading.Lock 保护模块级变量
+- 因此使用 _shared 系列函数,用 threading.Lock 保护模块级变量
 - LLMClient 在工作线程中通过 _shared 函数获取回调与当前阶段
 """
 from __future__ import annotations
 
 import threading
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 
-# ---- 进度回调上下文变量 ----
-# 流式分析期间,通过此 ContextVar 把 callback 传递给 LLMClient
-# 节点函数零改动:LLMClient() 构造时自动从上下文取 callback
-_progress_cv: ContextVar[Optional[Callable[[str, dict[str, Any]], None]]] = ContextVar(
-    "progress_callback", default=None
-)
-
-
-def get_progress_callback() -> Optional[Callable[[str, dict[str, Any]], None]]:
-    """获取当前上下文的进度回调."""
-    return _progress_cv.get()
-
-
-def set_progress_callback(cb: Optional[Callable[[str, dict[str, Any]], None]]) -> Any:
-    """设置当前上下文的进度回调,返回 Token 用于还原."""
-    return _progress_cv.set(cb)
-
-
-# ---- 当前阶段上下文变量 ----
-# 流式分析期间,记录当前正在执行的阶段,供回调计算 percent 使用
-_current_stage_cv: ContextVar[Optional["StageDef"]] = ContextVar(
-    "current_stage", default=None
-)
-
-
-def get_current_stage() -> Optional["StageDef"]:
-    """获取当前正在执行的分析阶段."""
-    return _current_stage_cv.get()
-
-
-def set_current_stage(stage: Optional["StageDef"]) -> Any:
-    """设置当前正在执行的分析阶段."""
-    return _current_stage_cv.set(stage)
-
-
 # ---- 线程安全的共享变量 ----
-# LangGraph astream() 在线程池中执行同步节点,ContextVar 不会传播到工作线程,
-# 因此用模块级变量 + threading.Lock 作为跨线程通信机制。
+# LangGraph astream() 在线程池中执行同步节点,
+# 用模块级变量 + threading.Lock 作为跨线程通信机制。
 
 _progress_shared_lock = threading.Lock()
 _progress_shared: Optional[Callable[[str, dict[str, Any]], None]] = None
@@ -64,28 +28,28 @@ _stage_shared_lock = threading.Lock()
 _stage_shared: Optional["StageDef"] = None
 
 
-def set_progress_callback_shared(cb: Optional[Callable[[str, dict[str, Any]], None]]) -> None:
+def set_progress_callback(cb: Optional[Callable[[str, dict[str, Any]], None]]) -> None:
     """线程安全:设置全局进度回调(供 LLMClient 在工作线程中读取)."""
     global _progress_shared
     with _progress_shared_lock:
         _progress_shared = cb
 
 
-def get_progress_callback_shared() -> Optional[Callable[[str, dict[str, Any]], None]]:
+def get_progress_callback() -> Optional[Callable[[str, dict[str, Any]], None]]:
     """线程安全:获取全局进度回调."""
     with _progress_shared_lock:
         return _progress_shared
 
 
-def set_current_stage_shared(stage: Optional["StageDef"]) -> None:
+def set_current_stage(stage: Optional["StageDef"]) -> None:
     """线程安全:设置当前阶段(供节点函数在工作线程中设置)."""
     global _stage_shared
     with _stage_shared_lock:
         _stage_shared = stage
 
 
-def get_current_stage_shared() -> Optional["StageDef"]:
-    """线程安全:获取当前阶段(供进度回调在工作线程中读取)."""
+def get_current_stage() -> Optional["StageDef"]:
+    """线程安全:获取当前阶段."""
     with _stage_shared_lock:
         return _stage_shared
 

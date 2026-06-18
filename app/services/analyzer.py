@@ -17,7 +17,6 @@ from app.workflow.progress import (
     STAGES,
     compute_streaming_percent,
     get_current_stage,
-    get_current_stage_shared,
     make_done_event,
     make_error_event,
     make_meta_event,
@@ -25,9 +24,7 @@ from app.workflow.progress import (
     make_stage_end_event,
     make_stage_start_event,
     set_current_stage,
-    set_current_stage_shared,
     set_progress_callback,
-    set_progress_callback_shared,
     stage_by_key,
     stage_by_node,
 )
@@ -133,13 +130,15 @@ class AnalyzerService:
     ) -> dict:
         trace_id = trace_id or str(uuid.uuid4())
 
-        resume_text = self._load_resume_text(resume_bytes, resume_path, resume_suffix)
-        job_text_value = self._load_job_text(job_text, job_bytes, job_path, job_suffix)
-
-        if not resume_text.strip():
-            raise ParseError("简历内容为空,请检查文件是否包含可识别的文本")
-        if not job_text_value.strip():
-            raise ParseError("岗位 JD 内容为空")
+        resume_text, job_text_value = self._prepare_input(
+            resume_bytes=resume_bytes,
+            resume_path=resume_path,
+            resume_suffix=resume_suffix,
+            job_text=job_text,
+            job_bytes=job_bytes,
+            job_path=job_path,
+            job_suffix=job_suffix,
+        )
 
         initial: AgentState = {
             "inputs": {
@@ -203,13 +202,15 @@ class AnalyzerService:
         yield _json_line(make_stage_start_event(upload_stage))
 
         try:
-            resume_text = self._load_resume_text(resume_bytes, resume_path, resume_suffix)
-            job_text_value = self._load_job_text(job_text, job_bytes, job_path, job_suffix)
-
-            if not resume_text.strip():
-                raise ParseError("简历内容为空,请检查文件是否包含可识别的文本")
-            if not job_text_value.strip():
-                raise ParseError("岗位 JD 内容为空")
+            resume_text, job_text_value = self._prepare_input(
+                resume_bytes=resume_bytes,
+                resume_path=resume_path,
+                resume_suffix=resume_suffix,
+                job_text=job_text,
+                job_bytes=job_bytes,
+                job_path=job_path,
+                job_suffix=job_suffix,
+            )
         except AppError as exc:
             yield _json_line(make_error_event("upload", exc.code, str(exc)))
             return
@@ -241,7 +242,7 @@ class AnalyzerService:
         def progress_callback(phase: str, info: dict) -> None:
             if loop is None:
                 return
-            stage = get_current_stage_shared()
+            stage = get_current_stage()
             try:
                 loop.call_soon_threadsafe(
                     queue.put_nowait,
@@ -250,9 +251,7 @@ class AnalyzerService:
             except (RuntimeError, asyncio.QueueFull):
                 pass
 
-        # 同时设置 ContextVar 和线程安全共享变量,确保两种路径都能获取回调
         set_progress_callback(progress_callback)
-        set_progress_callback_shared(progress_callback)
 
         # 后台任务:运行工作流,将节点事件推入队列
         async def run_workflow() -> None:
@@ -356,9 +355,7 @@ class AnalyzerService:
         finally:
             # 清理所有上下文
             set_progress_callback(None)
-            set_progress_callback_shared(None)
             set_current_stage(None)
-            set_current_stage_shared(None)
             if not task.done():
                 task.cancel()
                 try:
@@ -388,6 +385,28 @@ class AnalyzerService:
         yield _json_line(make_done_event(result_data, duration_ms))
 
     # ---- 内部辅助 ----
+
+    def _prepare_input(
+        self,
+        *,
+        resume_bytes: Optional[bytes] = None,
+        resume_path: Optional[str] = None,
+        resume_suffix: str = ".pdf",
+        job_text: Optional[str] = None,
+        job_bytes: Optional[bytes] = None,
+        job_path: Optional[str] = None,
+        job_suffix: str = ".txt",
+    ) -> tuple[str, str]:
+        """读取并校验简历和 JD 文本,返回 (resume_text, job_text)."""
+        resume_text = self._load_resume_text(resume_bytes, resume_path, resume_suffix)
+        job_text_value = self._load_job_text(job_text, job_bytes, job_path, job_suffix)
+
+        if not resume_text.strip():
+            raise ParseError("简历内容为空,请检查文件是否包含可识别的文本")
+        if not job_text_value.strip():
+            raise ParseError("岗位 JD 内容为空")
+
+        return resume_text, job_text_value
 
     def _load_resume_text(self, data: Optional[bytes], path: Optional[str], suffix: str) -> str:
         if data is not None:

@@ -134,10 +134,10 @@ async def _predict_stream_events(trace_id: str) -> AsyncIterator[bytes]:
         # ---- 40%–95% — LLM 流式调用(带 progress 回调) ----
         from app.extractors.llm_client import LLMClient
         from app.models.interview import InterviewPredictionOutput
-        from app.workflow.progress import set_current_stage_shared, get_current_stage_shared
+        from app.workflow.progress import set_current_stage, get_current_stage
 
         stage_obj = _MockStage(stage_key, "预测面试题", 0, 100)
-        set_current_stage_shared(stage_obj)
+        set_current_stage(stage_obj)
 
         llm = LLMClient()
         loop = asyncio.get_running_loop()
@@ -198,7 +198,7 @@ async def _predict_stream_events(trace_id: str) -> AsyncIterator[bytes]:
                     yield _error_event(stage_key, "predict_error", str(exc))
                     return
         finally:
-            set_current_stage_shared(None)
+            set_current_stage(None)
             if not task.done():
                 task.cancel()
                 try:

@@ -218,15 +218,27 @@
     });
   }
 
+  function _mapCacheToReport(cacheData) {
+    // 缓存 meta 用 provider/model,renderReport 用 used_provider/used_model
+    const meta = cacheData.meta || {};
+    return {
+      ...cacheData,
+      meta: {
+        resume_chars: meta.resume_chars ?? 0,
+        job_chars: meta.job_chars ?? 0,
+        used_provider: meta.used_provider || meta.provider || "—",
+        used_model: meta.used_model || meta.model || "—",
+      },
+    };
+  }
+
   async function _loadHistoricalReport(traceId) {
     try {
       const r = await fetch(`/api/v1/cache/${encodeURIComponent(traceId)}`);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const j = await r.json();
       if (!j.success) throw new Error(j.message || "读取失败");
-      const data = j.data;
-      // 后端 load_analysis 返回的字段结构:resume_data / job_requirement / match_report / suggestions / meta
-      // renderReport 只看 match_report / suggestions / meta,直接兼容
+      const data = _mapCacheToReport(j.data);
       renderReport(data, data.trace_id || traceId, "—");
       // 同步 URL,刷新/分享都能定位
       const url = new URL(location.href);
@@ -536,6 +548,30 @@
     const verdict = judge(score, sg.coverage);
     $("#r_verdict").textContent = verdict;
 
+    // 评分理由
+    const reasoning = mr.score_reasoning || "";
+    if (reasoning) {
+      $("#r_reasoning_text").textContent = reasoning;
+      $("#r_reasoning").hidden = false;
+    } else {
+      $("#r_reasoning").hidden = true;
+    }
+
+    // 亮点/短板
+    const strengths = mr.strengths || [];
+    const weaknesses = mr.weaknesses || [];
+    if (strengths.length || weaknesses.length) {
+      const sList = $("#r_strengths");
+      sList.innerHTML = "";
+      strengths.forEach(s => { const li = el("li", "", "✓ " + s); sList.appendChild(li); });
+      const wList = $("#r_weaknesses");
+      wList.innerHTML = "";
+      weaknesses.forEach(w => { const li = el("li", "", "✗ " + w); wList.appendChild(li); });
+      $("#r_score_tags").hidden = false;
+    } else {
+      $("#r_score_tags").hidden = true;
+    }
+
     // 第一屏 stat grid
     const grid = $("#r_stats");
     grid.innerHTML = "";
@@ -586,6 +622,12 @@
     empty.hidden = true;
     report.hidden = false;
     report.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    // 存储 trace_id 到 sessionStorage,用于页面返回时恢复状态
+    const tid = traceId || data.trace_id;
+    if (tid) {
+      sessionStorage.setItem("last_trace_id", tid);
+    }
 
     // 历史面板刷新 + 高亮当前
     _loadHistory();
@@ -663,13 +705,50 @@
   }
 
   // ============================================================
+  // 页面状态恢复(sessionStorage + 缓存回填)
+  // ============================================================
+
+  async function _restoreFromCache() {
+    const traceId = sessionStorage.getItem("last_trace_id");
+    if (!traceId) return false;
+
+    try {
+      const r = await fetch(`/api/v1/cache/${encodeURIComponent(traceId)}`);
+      if (r.status === 404) {
+        sessionStorage.removeItem("last_trace_id");
+        showToast("上次分析结果已过期，请重新分析");
+        return false;
+      }
+      if (!r.ok) return false;
+
+      const j = await r.json();
+      if (!j.success) return false;
+
+      const data = _mapCacheToReport(j.data);
+      renderReport(data, data.trace_id || traceId, "—");
+
+      // 同步 URL
+      const url = new URL(location.href);
+      url.searchParams.set("trace_id", traceId);
+      history.replaceState({}, "", url.toString());
+
+      return true;
+    } catch (_) {
+      // 网络异常,降级到 empty 状态
+      return false;
+    }
+  }
+
+  // ============================================================
   // 启动
   // ============================================================
   // 1. 加载历史记录
   _loadHistory();
-  // 2. URL 上有 trace_id 就自动还原该报告(URL 持久化:刷新/分享都能定位)
+  // 2. 恢复页面状态:优先 URL trace_id,其次 sessionStorage
   const _initTraceId = new URLSearchParams(location.search).get("trace_id");
   if (_initTraceId) {
     _loadHistoricalReport(_initTraceId);
+  } else {
+    _restoreFromCache();
   }
 })();

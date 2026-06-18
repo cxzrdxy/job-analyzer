@@ -22,7 +22,7 @@ from app.workflow.nodes import (
     parse_job_node,
     parse_resume_node,
 )
-from app.workflow.progress import set_current_stage_shared, stage_by_node
+from app.workflow.progress import set_current_stage, stage_by_node
 from app.workflow.state import AgentState
 
 logger = get_logger(__name__)
@@ -44,13 +44,13 @@ def _route_to_matchers(state: AgentState) -> list[Send]:
 def _with_stage_tracking(node_name: str, node_fn):
     """包装节点函数,在执行前设置当前阶段(线程安全)并记录耗时.
 
-    LangGraph astream() 在线程池中执行同步节点,ContextVar 无法跨线程传播,
-    因此通过 set_current_stage_shared 让进度回调能知道当前阶段.
+    LangGraph astream() 在线程池中执行同步节点,
+    通过 set_current_stage 让进度回调能知道当前阶段.
     """
     def wrapped(state):
         stage = stage_by_node(node_name)
         if stage:
-            set_current_stage_shared(stage)
+            set_current_stage(stage)
         t0 = time.monotonic()
         result = node_fn(state)
         elapsed_ms = (time.monotonic() - t0) * 1000

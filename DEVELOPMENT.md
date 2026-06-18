@@ -6,6 +6,23 @@
 
 ---
 
+## 📌 最新变更(2026-06-18)
+
+### v0.3 — 三线并发更新
+
+| 线 | 关键变化 | 详见 |
+|---|---|---|
+| 🧪 **测试套件** | `tests/` 67 单元 + 9 E2E + 30 用例压测,真实 LLM,Markdown 报告 | §4.12 |
+| ⚙️ **后端 workflow / extractors** | 移除 `eval`、新增流式回调、进度共享、强结构化 prompt + fallback | §4.13 |
+| 🎨 **前端运行态 + 历史面板** | 8 步骤进度视图、`sessionStorage` + URL `?trace_id=` 双轨状态恢复、报告顶部 CTA | §4.14 |
+| 🔗 **前后端契约** | `trace_id` 主键贯穿 URL / sessionStorage / 跳转 / 历史;NDJSON 6 类事件 | §4.15 |
+
+**质量基线**(2026-06-18,30 用例压测):通过率 **96.7%**,同岗位评分 56.2 vs 跨岗位 24.0(差 +32.1),单次分析 avg 92s。
+
+**已知 P1**:`aggregate_report` 节点旧 `eval` 路径在 LLM 输出含 `List[...]` 字面量时 `NameError`(本次改造已移除 `eval`,待回归验证)。
+
+---
+
 ## 目录
 
 - [0. 30 秒速览](#0-30-秒速览)
@@ -24,6 +41,10 @@
   - [4.9 并行抽取:parse_resume / parse_job 并行化](#49-并行抽取parse_resume--parse_job-并行化)
   - [4.10 面试题预测:独立页面 + 持久化缓存](#410-面试题预测独立页面--持久化缓存)
   - [4.11 工作台持久化 + 面试台贯通(本次更新)](#411-工作台持久化--面试台贯通本次更新)
+- [4.12 全流程测试套件(v0.3+)](#412-全流程测试套件v03)
+- [4.13 后端 workflow / extractors 改造(2026-06-18)](#413-后端-workflow--extractors-改造2026-06-18)
+- [4.14 前端运行态视图 + 历史面板贯通(2026-06-18)](#414-前端运行态视图--历史面板贯通2026-06-18)
+- [4.15 前后端契约:trace_id 与 NDJSON 事件流(2026-06-18)](#415-前后端契约trace_id-与-ndjson-事件流2026-06-18)
 - [5. 验证清单](#5-验证清单)
 - [6. 风险、回滚与安全](#6-风险回滚与安全)
 - [7. GitHub 发布说明](#7-github-发布说明)
@@ -1341,6 +1362,429 @@ const title = raw.job_title || job.position || job.title || "未指定岗位";
 
 ---
 
+### 4.12 全流程测试套件(v0.3+)
+
+#### 4.12.1 动机与目标
+
+| 目标 | 实现 |
+|---|---|
+| 把"代码跑通"升级为"质量可量化" | 三层测试 + Markdown 报告 |
+| 覆盖解析 → 抽取 → 匹配 → 建议全链路 | E2E 测试 + 批量压测 |
+| 同/跨岗位匹配分有显著差异,验证模型有效 | 批量压测同岗位 vs 跨岗位对比 |
+| 失败可重现可定位 | 每条用例独立 trace_id + 详细 JSON 日志 |
+| 离线/CI 友好 | 单元测试 0 LLM 依赖,< 1s 跑完 |
+
+#### 4.12.2 目录结构
+
+```
+tests/
+├── README.md                   # 使用文档
+├── runner.py                   # 轻量测试运行器(@unit/@e2e 装饰器)
+├── run_all.py                  # 一站式入口:单元 → E2E → 压测 → 报告
+├── generate_report.py          # 聚合所有产物 → full_report.md
+├── fixtures/
+│   ├── resumes.py              # 27 份简历(9 类目)
+│   └── jobs.py                 # 12 个 JD(覆盖同类目)
+├── unit/                       # 67 单元测试(< 1s)
+│   ├── test_parsers.py
+│   ├── test_llm_client.py
+│   ├── test_matchers.py
+│   ├── test_suggestion_generator.py
+│   ├── test_models.py
+│   ├── test_progress.py
+│   ├── test_config.py
+│   └── test_errors.py
+├── e2e/                        # 9 E2E(真实 LLM,~7min)
+│   ├── test_e2e_pipeline.py
+│   └── test_e2e_extractors.py
+└── loadtest/
+    └── batch_e2e.py            # 批量压测(异步并发)
+```
+
+#### 4.12.3 关键设计
+
+| 决策 | 备选 | 理由 |
+|---|---|---|
+| 自研轻量 runner + `@unit`/`@e2e` 装饰器 | pytest | 离线环境无法 pip install pytest;装饰器方式更轻,符合"最小依赖"原则 |
+| 测试数据用 dataclass fixture(代码构造) | JSON/YAML 文件 | 简历/JD 字段嵌套多,JSON/YAML 易错;代码构造自带类型提示 + IDE 补全 |
+| `ResumeFixture.text` 字段统一为 Markdown 文本 | .pdf/.docx | LLM 抽取对纯文本友好,避免被解析器差异干扰;真实场景下解析路径已由 `test_e2e_extractors.py` 覆盖 |
+| 压测并发度默认 4 | 单条顺序 | DeepSeek 限流 ~10 RPM,并发 4 在 30 用例下总耗时 ~12min,远低于限流 |
+| JSON + CSV + Markdown 三种报告 | 仅 JSON | JSON 给程序消费、CSV 给 Excel、Markdown 给 git diff 与 PR review |
+| LLM 输出错误时**不重试整流程**,只 fallback 建议 | 整个用例失败 | 抽取成功但建议生成失败是 LLM 偶发问题,不应影响整体可用性 |
+
+#### 4.12.4 指标与门禁
+
+最近一轮(2026-06-18,30 用例)结果作为**质量基线**:
+
+| 指标 | 当前值 | 门禁(参考) |
+|---|---:|---|
+| 单元测试通过率 | **100%** (67/67) | ≥ 95% |
+| E2E 测试通过率 | **100%** (9/9) | ≥ 90% |
+| 批量压测通过率 | **96.7%** (29/30) | ≥ 90% |
+| 同岗位评分均值 | **56.2** | ≥ 50 |
+| 跨岗位评分均值 | **24.0** | ≤ 30 |
+| 同/跨差异 | **+32.1 分** | ≥ 20 |
+| 单次分析平均耗时 | 92s | ≤ 120s |
+| 建议数量均值 | 6.4 条 | 5-8 条(满足 schema) |
+
+后续每次发布前必须跑 `tests/run_all.py --loadtest-limit 30`,基线差异 > 10% 需回归。
+
+#### 4.12.5 发现的问题与跟进
+
+| # | 问题 | 触发场景 | 跟进优先级 |
+|---|---|---|---|
+| 1 | `aggregate_report` 节点 LLM 输出含 `List[...]` 字面量触发 `eval` → `NameError` | 跨类目简历 / JD,LLM 倾向输出 Python 字面量 | **P1**(影响 3.3% 用例) |
+| 2 | P95 耗时 188s,长尾严重 | LLM 偶发限流/重试 | P2(缓存层优化可缓解) |
+| 3 | 经验匹配 0.603 vs 技能覆盖 0.208,匹配规则偏严 | 缺别名(`Postgres → PostgreSQL`) | P3 |
+
+#### 4.12.6 如何添加新测试
+
+```python
+# tests/unit/test_my_module.py
+from tests.runner import unit
+
+@unit
+def test_my_function():
+    from app.my_module import my_func
+    result = my_func("input")
+    assert result["status"] == "ok"
+```
+
+跑一遍即可被自动收集。E2E 同理,加 `@e2e` 装饰器。
+
+---
+
+### 4.13 后端 workflow / extractors 改造(2026-06-18)
+
+#### 4.13.1 动机
+
+v0.2 留有 3 类遗留问题:**评分路径用 `eval` 解析 LLM 输出**(安全风险 + 注入可能)、**LLM 进度无法跨线程回调**(ContextVar 在 LangGraph `astream` 失效)、**建议生成 prompt 自由度过高**(LLM 幻觉频繁、字段常常为空)。
+
+本次针对这三类问题做了一轮集中加固。
+
+#### 4.13.2 `aggregate_report` 移除 `eval`,改 Pydantic 强校验
+
+```python
+# app/workflow/nodes.py(改造前)
+score_dict = eval(content)   # ⚠️ 安全风险
+
+# app/workflow/nodes.py(改造后)
+class LLMScoreOutput(BaseModel):
+    overall_score: float
+    @field_validator("overall_score")
+    @classmethod
+    def clamp_score(cls, v):
+        return max(0.0, min(100.0, round(v, 1)))
+
+raw = llm.chat_json(
+    system=_SCORE_SYSTEM_PROMPT,
+    user=_build_score_prompt(resume, job, skill_gap, experience, keywords),
+    schema=LLMScoreOutput,
+)
+score = raw["overall_score"]
+```
+
+配套 `_SCORE_SYSTEM_PROMPT` 给出 5 档评分锚点(90+ / 75-89 / 60-74 / 40-59 / <40),让 LLM 输出可量化。
+
+#### 4.13.3 `generate_suggestions` 双层 fallback
+
+```python
+# 第一层:nodes.py 节点兜底
+try:
+    suggestions = generate_suggestions(resume, job, report, LLMClient())
+except Exception:
+    logger.exception("generate_suggestions 失败,降级")
+    from app.workflow.suggestion_generator import _fallback_suggestions
+    suggestions = _fallback_suggestions(resume, job, report)
+
+# 第二层:suggestion_generator.py 模块内
+def generate_suggestions(...):
+    try:
+        raw = llm.chat_json(schema=SuggestionListOutput, max_retries=2)
+    except Exception:
+        return _fallback_suggestions(resume, job, report)
+```
+
+`_fallback_suggestions` 覆盖三类缺口:缺失技能(取 `skill_gap.missing[:3]` → HIGH)、经验不足(→ HIGH)、关键词缺失(→ MEDIUM)。
+
+#### 4.13.4 `LLMClient` 流式 + 三阶段回调
+
+```python
+# app/extractors/llm_client.py
+def _invoke_stream(self, system, user, hint, callback):
+    for chunk in self._get_model().stream([...]) :
+        text = chunk.content or ""
+        if first_chunk:
+            callback("first_token", {"chars": len(text)})
+        elif total_chars % _STREAMING_CHARS_THRESHOLD < len(text):
+            callback("streaming", {"chars": total_chars})
+```
+
+- 首 chunk 触发 `first_token` 事件,前端"立即转圈"
+- 每累计 80 字符触发 `streaming` 事件,前端进度条平滑推进
+- 异常触发 `error` 事件,前端切到失败视图
+
+`chat_json()` 与 `chat_text()` 都支持显式 `progress_callback` 参数,优先级高于 contextvar 兜底。
+
+#### 4.13.5 `progress.py` 从 ContextVar 改为 Lock + 共享变量
+
+```python
+# 旧版(失败场景)
+_ctx_var = ContextVar("progress")    # LangGraph astream 跨线程取不到
+
+# 新版
+_lock = threading.Lock()
+_progress_shared: dict | None = None
+def set_progress_callback(cb):
+    global _progress_shared
+    with _lock:
+        _progress_shared = cb
+```
+
+配套 `StageDef` 数据类与 8 阶段表(`upload / parse_resume / parse_job / dispatch_matchers / skill_gap / experience / keywords / aggregate / suggestions`),`compute_streaming_percent` 把字符数映射到百分比,前端进度条能稳定显示。
+
+#### 4.13.6 `graph.py` 节点装饰器统一接入 stage
+
+```python
+def _with_stage_tracking(node_func):
+    def wrapper(state):
+        stage = stage_by_node(node_func.__name__)
+        set_current_stage(stage)
+        t0 = time.monotonic()
+        result = node_func(state)
+        logger.info(f"节点 {node_func.__name__} 完成, 耗时 {(time.monotonic()-t0)*1000:.0f}ms")
+        return result
+    return wrapper
+```
+
+所有节点注册时统一套用包装器,LangGraph 节点与 progress 系统的 stage 自动打通,无需每个节点手动 `set_current_stage`。
+
+#### 4.13.7 `analyzer.py` 同步/流式入口分离
+
+- **同步 `analyze()`**:走 `ainvoke` 全量结果 → `_persist_cache` 后台 `asyncio.create_task(safe_save_analysis(...))`
+- **流式 `analyze_stream()`**:`asyncio.Queue` + 后台任务 + `loop.call_soon_threadsafe` 串联 LangGraph `astream` 节点事件和 LLM token 进度,逐行 yield NDJSON
+
+流式 `analyze_stream` 通过 `started_stages` 去重补发 `stage_start`,确保前端 8 步骤视图完整点亮。
+
+#### 4.13.8 决策回顾
+
+| 决策 | 备选 | 理由 |
+|---|---|---|
+| 移除 `eval` 改 Pydantic Schema | 加 `ast.literal_eval` 白名单 | 任何 `eval` 都是攻击面,直接消除;Pydantic 还能做字段验证 |
+| 三阶段回调 vs 单回调 | 只发 `progress` | 首 chunk 单独通知 `first_token` 让前端能立即转圈,优于等 80 字 |
+| Lock + 共享变量 vs ContextVar | 继续 ContextVar + 加 thread local 桥接 | LangGraph astream 工作线程 ≠ 事件循环线程,ContextVar 在跨线程不可靠 |
+| 双层 fallback | 只在节点层兜底 | 模块层也兜底,允许 `analyzer` 直接调用 `generate_suggestions` 时也安全 |
+
+---
+
+### 4.14 前端运行态视图 + 历史面板贯通(2026-06-18)
+
+#### 4.14.1 运行态视图(`<section class="run-view">`)
+
+```html
+<!-- static/index.html(新增骨架) -->
+<section class="run-view" id="runView" hidden>
+  <div class="run-header">
+    <span class="run-title">运行中</span>
+    <span class="run-timer">00:00</span>
+  </div>
+  <div class="run-bar-track">
+    <div class="run-bar-fill" id="runBar"></div>
+  </div>
+  <ol class="run-steps" id="runSteps">
+    <!-- 8 步由 JS 动态生成 -->
+  </ol>
+  <div class="run-status" id="runStatus"><span class="status-icon spin"></span>正在抽取简历...</div>
+  <div class="run-error" id="runError" hidden></div>
+</section>
+```
+
+JS 端 `streamAnalyze()`:
+
+```js
+async function streamAnalyze() {
+  const res = await fetch('/api/v1/analyze/stream', { method: 'POST', body: formData });
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    for (const line of buffer.split('\n')) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line);
+      dispatchEvent(event);   // 路由 6 类事件
+    }
+  }
+}
+```
+
+事件路由:
+
+```js
+const PARALLEL_GROUPS = [{1, 2}, {3, 4, 5}];   // parse 阶段 + match 阶段
+function dispatchEvent(e) {
+  switch (e.type) {
+    case 'meta':         setTraceId(e.trace_id); break;
+    case 'stage_start':  onStageStart(e.index, e.label); break;
+    case 'progress':     onProgress(e.percent, e.message); break;
+    case 'stage_end':    onStageEnd(e.index); break;
+    case 'done':         renderReport(e.data); _hideRunView(); break;
+    case 'error':        onError(e.stage, e.message); break;
+  }
+}
+```
+
+并行阶段用 `.parallel-active`(琥珀色)区分同组两个 active 步骤,组结束后回到单一 active。
+
+#### 4.14.2 历史面板子系统
+
+```js
+// static/app.js
+function injectHistoryPanel() {
+  // 在 .report-actions 上方插入 .history-panel 容器
+}
+
+async function _loadHistory() {
+  const res = await fetch('/api/v1/cache?limit=50');
+  const { data } = await res.json();
+  // 渲染列表,每项:trace_id / name / title / score / time
+}
+
+function _highlightActiveInHistory() {
+  document.querySelectorAll('.history-item').forEach(el =>
+    el.classList.toggle('is-active', el.dataset.traceId === _currentTraceId));
+}
+
+async function _loadHistoricalReport(traceId) {
+  const res = await fetch(`/api/v1/cache/${traceId}`);
+  const { data } = await res.json();
+  renderReport(data);
+  history.replaceState({}, '', `?trace_id=${traceId}`);
+  _highlightActiveInHistory();
+}
+```
+
+评分颜色按 80/60 分档:`.hp-score.ok` / `.warn` / `.bad`。
+
+#### 4.14.3 页面状态恢复双轨
+
+```js
+// 启动顺序
+async function bootstrap() {
+  await _loadHistory();
+  const urlTrace = new URLSearchParams(location.search).get('trace_id');
+  if (urlTrace) {
+    await _loadHistoricalReport(urlTrace);     // 1. URL 优先
+  } else {
+    const lastTid = sessionStorage.getItem('last_trace_id');
+    if (lastTid) {
+      try { await _loadHistoricalReport(lastTid); }
+      catch { /* 404 降级到 empty */ }
+    }
+  }
+}
+
+// 分析完成后
+sessionStorage.setItem('last_trace_id', tid);
+history.replaceState({}, '', `?trace_id=${tid}`);   // 同步到 URL
+```
+
+#### 4.14.4 报告顶部 CTA(跨页贯通)
+
+```html
+<!-- static/index.html -->
+<div class="report-actions" id="reportActions" hidden>
+  <a class="btn-iv" id="btnGoInterview">基于此报告生成面试题 →</a>
+</div>
+```
+
+```js
+// renderReport 末尾
+const tid = data.trace_id || _currentTraceId;
+document.getElementById('btnGoInterview').href = `/interview?trace_id=${tid}`;
+document.getElementById('reportActions').hidden = false;
+```
+
+CSS:
+
+```css
+.report-actions {
+  background: linear-gradient(135deg, rgba(255,165,0,0.12), rgba(255,140,0,0.05));
+  border: 1px solid rgba(255,165,0,0.25);
+  padding: 14px 20px;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.btn-iv {
+  background: var(--orange);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+}
+.btn-iv:hover { filter: brightness(1.1); }
+```
+
+#### 4.14.5 决策回顾
+
+| 决策 | 备选 | 理由 |
+|---|---|---|
+| 流式 fetch + TextDecoder | SSE EventSource | SSE 对自定义 `meta`/`stage_start` 协议不够灵活;NDJSON 简单可控 |
+| 历史面板 JS 注入而非静态 HTML | 改 `index.html` 加 `<div class="history-panel">` | 静态 HTML 改动扩散到 git diff,JS 注入把"实现"留在 JS |
+| URL `?trace_id=` + sessionStorage 双轨 | 只用 sessionStorage | URL 分享友好 + 刷新不丢;sessoinStorage 受同源限制但能跨页签 |
+| 报告顶部 CTA | 报告下方按钮 | 用户分析完第一反应是"下一步",上方第一眼可见 |
+| `[hidden]{display:none !important}` | `.hidden { display: none }` 类 | `[hidden]` 是 HTML5 标准属性;`!important` 兜底防止 `display:flex/grid` 把它露出来 |
+| 并行阶段用 `.parallel-active` 琥珀色 | 只显示单一 active | 用户能直观看到"这一步是并行的",不会以为步骤卡住 |
+
+---
+
+### 4.15 前后端契约:`trace_id` 与 NDJSON 事件流(2026-06-18)
+
+#### 4.15.1 `trace_id` 主键贯穿四端
+
+```text
+   [URL ?trace_id=xxx]
+          │
+          ├── 刷新 / 分享 → bootstrap() 自动 _loadHistoricalReport(tid)
+          │
+   [sessionStorage.last_trace_id]
+          │
+          ├── 跨页签 / 关闭浏览器 → fallback
+          │
+   [后端 AnalysisCache.trace_id PK]
+          │
+          ├── /api/v1/cache/{trace_id} → 完整报告
+          ├── /api/v1/interview/predict?trace_id=xxx → 面试题预测
+          │
+   [报告顶部 CTA /interview?trace_id=xxx]
+```
+
+#### 4.15.2 NDJSON 事件契约(`POST /api/v1/analyze/stream`)
+
+```typescript
+type StreamEvent =
+  | { type: 'meta',          trace_id: string }
+  | { type: 'stage_start',   index: number, label: string, key: string }
+  | { type: 'progress',      percent: number, message: string, chars: number }
+  | { type: 'stage_end',     index: number, key: string }
+  | { type: 'done',          data: AnalysisResult, trace_id: string }
+  | { type: 'error',         stage: string, code: string, message: string };
+```
+
+每行一个 JSON 对象,以 `\n` 分隔。前端严格按 `type` 字段分发,不允许依赖顺序。
+
+#### 4.15.3 失败语义
+
+| 场景 | 触发 | 事件 | 前端反应 |
+|---|---|---|---|
+| LLM 解析失败 | `chat_json` 抛 JSONDecodeError | `error` | 切到 `.run-error` 红色视图,toast 提示 |
+| 阶段超时 | `compute_streaming_percent` 超阈值未推进 | `progress` 不再增长 | 进度条停留,文案"分析中,请稍候" |
+| 流式 fetch 失败 | `ReadableStream` 抛错 | — | `try/fallback` 调 `POST /api/v1/analyze` 同步兜底 |
+| 缓存读不到 | `/cache/{tid}` 返 404 | — | 降级到 empty 视图,清空 `sessionStorage.last_trace_id` |
+
+---
+
 ## 5. 验证清单
 
 ### 5.1 基础(8 条)
@@ -1532,7 +1976,11 @@ Invoke-RestMethod -Uri "https://api.github.com/repos/<owner>/<repo>/contents/<pa
 | 2026-06-10 | 面试题预测模块上线:独立 `/interview` 页面 + PostgreSQL 持久化缓存层 + 工作流零侵入,详见 §4.10 |
 | 2026-06-11 | 工作台持久化打通:历史记录面板 + 报告顶部"生成面试题"CTA + URL 持久化(`?trace_id=xxx`)+ 面试台 trace_id 兜底表单,详见 §4.11 |
 | 2026-06-11 | Bug 修复:面试台 `renderSummary` 用错字段(`job.title` 改为 `job.position`),见 §4.11.5 |
+| 2026-06-18 | **v0.3 全流程测试套件上线**:`tests/` 目录,67 单元 + 9 E2E + 30 用例压测,真实 LLM,详见 §4.12。发现 `aggregate_report` 节点 `eval` 触发的 `NameError`(1/30 失败) |
+| 2026-06-18 | **后端 workflow / extractors 改造**:`aggregate_report` 移除 `eval` 改 `LLMScoreOutput` Pydantic Schema;`generate_suggestions` 双层 fallback;`LLMClient._invoke_stream` 流式 + 三阶段回调;`progress.py` Lock + 共享变量替代 ContextVar;`graph.py` 节点装饰器统一接入 stage;`analyzer.py` 同步/流式入口分离,详见 §4.13 |
+| 2026-06-18 | **前端运行态视图 + 历史面板贯通**:`<section class="run-view">` 8 步骤进度视图;`streamAnalyze()` 拉 `/api/v1/analyze/stream` NDJSON;历史面板子系统;`sessionStorage` + URL `?trace_id=` 双轨状态恢复;报告顶部 CTA,详见 §4.14 |
+| 2026-06-18 | **前后端契约**:`trace_id` 主键贯穿 URL / sessionStorage / 跳转 CTA / 历史面板;NDJSON 6 类事件契约,详见 §4.15 |
 
 ---
 
-**最后更新**:2026-06-11 · 维护者:`cxzrdxy`
+**最后更新**:2026-06-18 · 维护者:`cxzrdxy`

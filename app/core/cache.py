@@ -111,31 +111,6 @@ async def load_analysis(
     }
 
 
-async def load_summary(
-    session: AsyncSession,
-    trace_id: str,
-) -> Optional[dict[str, Any]]:
-    """读取分析摘要(标量字段),用于面试题页面快速展示."""
-    stmt = select(
-        AnalysisCache.trace_id,
-        AnalysisCache.created_at,
-        AnalysisCache.resume_name,
-        AnalysisCache.job_title,
-        AnalysisCache.overall_score,
-    ).where(AnalysisCache.trace_id == trace_id)
-    result = await session.execute(stmt)
-    row = result.one_or_none()
-    if row is None:
-        return None
-    return {
-        "trace_id": row.trace_id,
-        "created_at": row.created_at.isoformat() if row.created_at else None,
-        "resume_name": row.resume_name,
-        "job_title": row.job_title,
-        "overall_score": float(row.overall_score or 0.0),
-    }
-
-
 async def list_analyses(
     session: AsyncSession,
     limit: int = 50,

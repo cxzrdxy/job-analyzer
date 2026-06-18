@@ -1,0 +1,103 @@
+[
+  {
+    "case_id": "backend_01__jd_python_backend_01",
+    "resume_id": "backend_01",
+    "resume_category": "互联网研发-后端",
+    "resume_role": "后端工程师",
+    "resume_years": 4.5,
+    "job_id": "jd_python_backend_01",
+    "job_title": "Python 后端开发工程师",
+    "job_category": "互联网研发-后端",
+    "is_same_field": true,
+    "status": "passed",
+    "duration_ms": 72140.99999998871,
+    "error": "",
+    "overall_score": 82.0,
+    "skill_coverage": 0.65,
+    "experience_score": 0.6,
+    "keyword_coverage": 0.382,
+    "matched_skills": [
+      "Python 后端开发",
+      "Web 框架：FastAPI / Flask / Django 至少一种",
+      "异步编程 (asyncio)",
+      "NoSQL 数据库：Redis / MongoDB",
+      "消息队列：Kafka / RabbitMQ，高并发场景经验",
+      "容器化技术：Docker / Kubernetes，CI/CD 实践经验",
+      "可观测性：Prometheus + Grafana",
+      "LLM 应用开发（OpenAI / DeepSeek / 通义千问 等至少一种）",
+      "向量数据库：PgVector / Milvus / Qdrant / FAISS",
+      "LLM / LangChain / LangGraph 经验",
+      "工程效能改进意识",
+      "关注 AI 工程化趋势"
+    ],
+    "missing_skills": [
+      "开源项目或技术博客",
+      "技术方案设计与评审能力"
+    ],
+    "suggestions_count": 6,
+    "hard_gaps": [
+      "缺少硬技能: 开源项目或技术博客",
+      "缺少硬技能: 技术方案设计与评审能力"
+    ],
+    "strengths": [
+      "核心技能全面覆盖：Python后端、FastAPI/Django、异步编程、Redis、Kafka、Docker/Kubernetes、Prometheus/Grafana、LLM应用开发（OpenAI）、LangGraph等均命中。",
+      "高并发场景经验：来自字节跳动和美团的后端开发岗位，天然具备处理高并发消息队列和容器化部署的实践经验。",
+      "AI工程化趋势关注：具备LLM和LangGraph经验，符合岗位对AI工程化方向的期望。"
+    ],
+    "weaknesses": [
+      "缺乏开源项目或技术博客：简历中未见任何开源贡献或技术文章记录，影响技术输出能力和社区影响力评估。",
+      "技术方案设计与评审能力未体现：没有明确参与过系统架构设计或技术方案评审的经历，需在面试中验证。",
+      "关系型数据库技能不够具体：仅列出PostgreSQL，未提及MySQL及SQL调优经验，需补充或确认。",
+      "行业经验不够精准：虽有互联网大厂经验，但未覆盖SaaS、电商、金融科技等目标行业。"
+    ]
+  },
+  {
+    "case_id": "backend_01__jd_python_backend_02",
+    "resume_id": "backend_01",
+    "resume_category": "互联网研发-后端",
+    "resume_role": "后端工程师",
+    "resume_years": 4.5,
+    "job_id": "jd_python_backend_02",
+    "job_title": "高级 Python 后端工程师(AI 方向)",
+    "job_category": "互联网研发-后端",
+    "is_same_field": true,
+    "status": "passed",
+    "duration_ms": 57546.999999991385,
+    "error": "",
+    "overall_score": 82.0,
+    "skill_coverage": 0.77,
+    "experience_score": 0.6,
+    "keyword_coverage": 0.36,
+    "matched_skills": [
+      "精通 FastAPI / Django",
+      "熟悉 Celery / asyncio 异步生态",
+      "深入理解 Kafka",
+      "深入理解 Redis",
+      "深入理解 PostgreSQL",
+      "深入理解向量检索（FAISS / Milvus）",
+      "有 LLM 应用工程化经验，熟悉 RAG / Agent / Prompt Engineering",
+      "良好的系统设计能力，能在复杂场景下做出技术权衡"
+    ],
+    "missing_skills": [
+      "制定团队技术规范，培养初中级工程师"
+    ],
+    "suggestions_count": 6,
+    "hard_gaps": [
+      "缺少硬技能: 制定团队技术规范，培养初中级工程师"
+    ],
+    "strengths": [
+      "精通FastAPI和Django，完美匹配岗位核心技术栈",
+      "熟悉Celery、asyncio异步生态，满足高并发需求",
+      "深入理解Kafka、Redis、PostgreSQL，数据存储与消息队列经验扎实",
+      "具备LLM应用工程化经验，熟悉RAG/Agent/Prompt Engineering，符合AI方向要求",
+      "拥有良好的系统设计能力，能在复杂场景下做技术权衡"
+    ],
+    "weaknesses": [
+      "简历未明确提及Kubernetes上千级Pod规模的生产实践，需进一步确认",
+      "未展示主导核心交易/推荐系统架构设计和技术演进的具体案例",
+      "LangGraph/LangChain驱动的AI Agent平台后端工程化经验未详细说明",
+      "缺少推动微服务拆分、可观测性、稳定性治理的明确经历",
+      "缺失制定团队技术规范、培养初中级工程师的团队管理经验"
+    ]
+  }
+]

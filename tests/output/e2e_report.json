@@ -1,0 +1,92 @@
+{
+  "started_at": "2026-06-18T16:12:46.164002",
+  "duration_s": 422.828,
+  "total": 9,
+  "passed": 9,
+  "failed": 0,
+  "error": 0,
+  "skipped": 0,
+  "results": [
+    {
+      "name": "test_e2e_extract_from_bytes",
+      "module": "tests.e2e.test_e2e_extractors",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 187.9999999946449,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_extract_txt_jd_file",
+      "module": "tests.e2e.test_e2e_extractors",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 31.000000002677552,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_extract_txt_resume_file",
+      "module": "tests.e2e.test_e2e_extractors",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 46.999999991385266,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_backend_resume_vs_backend_jd",
+      "module": "tests.e2e.test_e2e_pipeline",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 76672.00000000594,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_backend_resume_vs_finance_jd_low_score",
+      "module": "tests.e2e.test_e2e_pipeline",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 62592.99999999348,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_data_analyst_resume_vs_data_jd",
+      "module": "tests.e2e.test_e2e_pipeline",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 54391.00000000326,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_frontend_resume_vs_frontend_jd",
+      "module": "tests.e2e.test_e2e_pipeline",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 74016.00000000326,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_stream_emits_events",
+      "module": "tests.e2e.test_e2e_pipeline",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 80577.99999999406,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_e2e_suggestions_have_required_fields",
+      "module": "tests.e2e.test_e2e_pipeline",
+      "tag": "e2e",
+      "status": "passed",
+      "duration_ms": 74312.00000000536,
+      "message": "",
+      "traceback": ""
+    }
+  ]
+}

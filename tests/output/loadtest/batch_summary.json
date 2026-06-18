@@ -1,0 +1,105 @@
+{
+  "total": 30,
+  "passed": 29,
+  "failed": 1,
+  "pass_rate": 0.9667,
+  "duration_ms": {
+    "avg": 92553.0,
+    "median": 77109.0,
+    "p95": 187577.99999999406,
+    "min": 47687.999999994645,
+    "max": 254891.00000000326
+  },
+  "overall_score": {
+    "avg": 30.69,
+    "median": 25.0,
+    "min": 10.0,
+    "max": 85.0,
+    "p25": 20.0,
+    "p75": 35.0
+  },
+  "skill_coverage": {
+    "avg": 0.208,
+    "median": 0.17
+  },
+  "experience_score": {
+    "avg": 0.603
+  },
+  "keyword_coverage": {
+    "avg": 0.122
+  },
+  "suggestions_count": {
+    "avg": 6.4,
+    "min": 0,
+    "max": 8
+  },
+  "same_field_score": {
+    "n": 6,
+    "avg": 56.17,
+    "median": 55.0
+  },
+  "cross_field_score": {
+    "n": 23,
+    "avg": 24.04,
+    "median": 20.0
+  },
+  "error_buckets": {
+    "WorkflowError": 1
+  },
+  "by_job_category": {
+    "互联网研发-后端": {
+      "n": 6,
+      "passed": 6,
+      "avg_score": 56.17,
+      "avg_duration_ms": 89216.0
+    },
+    "互联网研发-前端": {
+      "n": 3,
+      "passed": 3,
+      "avg_score": 18.33,
+      "avg_duration_ms": 76021.0
+    },
+    "互联网研发-算法": {
+      "n": 3,
+      "passed": 3,
+      "avg_score": 28.33,
+      "avg_duration_ms": 88641.0
+    },
+    "互联网研发-全栈": {
+      "n": 3,
+      "passed": 3,
+      "avg_score": 37.67,
+      "avg_duration_ms": 130995.0
+    },
+    "数据/分析": {
+      "n": 5,
+      "passed": 5,
+      "avg_score": 26.0,
+      "avg_duration_ms": 108837.0
+    },
+    "数据/分析-产品": {
+      "n": 2,
+      "passed": 2,
+      "avg_score": 17.5,
+      "avg_duration_ms": 57617.0
+    },
+    "传统行业-金融": {
+      "n": 4,
+      "passed": 4,
+      "avg_score": 20.0,
+      "avg_duration_ms": 78211.0
+    },
+    "传统行业-咨询": {
+      "n": 2,
+      "passed": 1,
+      "avg_score": 20.0,
+      "avg_duration_ms": 99914.0
+    },
+    "传统行业-快消": {
+      "n": 2,
+      "passed": 2,
+      "avg_score": 17.5,
+      "avg_duration_ms": 59219.0
+    }
+  }
+}

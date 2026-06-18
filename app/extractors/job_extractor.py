@@ -55,6 +55,7 @@ class JobExtractor:
             system=_JOB_SYSTEM,
             user=user_prompt,
             schema=JobRequirement,
+            max_retries=2,
         )
         parsed.raw_text = text
         return parsed

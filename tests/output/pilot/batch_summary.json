@@ -1,0 +1,55 @@
+{
+  "total": 2,
+  "passed": 2,
+  "failed": 0,
+  "pass_rate": 1.0,
+  "duration_ms": {
+    "avg": 64844.0,
+    "median": 64844.0,
+    "p95": 72140.99999998871,
+    "min": 57546.999999991385,
+    "max": 72140.99999998871
+  },
+  "overall_score": {
+    "avg": 82.0,
+    "median": 82.0,
+    "min": 82.0,
+    "max": 82.0,
+    "p25": 82.0,
+    "p75": 82.0
+  },
+  "skill_coverage": {
+    "avg": 0.71,
+    "median": 0.71
+  },
+  "experience_score": {
+    "avg": 0.6
+  },
+  "keyword_coverage": {
+    "avg": 0.371
+  },
+  "suggestions_count": {
+    "avg": 6,
+    "min": 6,
+    "max": 6
+  },
+  "same_field_score": {
+    "n": 2,
+    "avg": 82.0,
+    "median": 82.0
+  },
+  "cross_field_score": {
+    "n": 0,
+    "avg": null,
+    "median": null
+  },
+  "error_buckets": {},
+  "by_job_category": {
+    "互联网研发-后端": {
+      "n": 2,
+      "passed": 2,
+      "avg_score": 82.0,
+      "avg_duration_ms": 64844.0
+    }
+  }
+}

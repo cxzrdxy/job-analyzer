@@ -217,3 +217,29 @@ def compute_streaming_percent(stage: "StageDef", phase: str, chars: int) -> floa
         fraction = min(chars / 1500, 1.0)
         return stage.percent_start + (0.35 + 0.55 * fraction) * span
     return stage.percent_start + 0.1 * span
+
+
+# ---- 面试题预测专用阶段(独立于主分析 STAGES,避免协议冲突) ----
+
+INTERVIEW_STAGES: tuple[StageDef, ...] = (
+    StageDef(0, "load_cache", "读取分析缓存", 0, 10, False),
+    StageDef(1, "build_prompt", "构造预测 Prompt", 10, 30, False),
+    StageDef(2, "predict", "LLM 生成面试题", 30, 95, True),
+    StageDef(3, "validate", "校验与修正", 95, 99, False),
+)
+
+# 面试预测节点名 → 阶段 key 映射
+_INTERVIEW_NODE_TO_STAGE_KEY: dict[str, str] = {
+    "load_cache": "load_cache",
+    "build_prompt": "build_prompt",
+    "predict": "predict",
+    "validate": "validate",
+}
+
+
+def interview_stage_by_key(key: str) -> Optional[StageDef]:
+    """根据阶段 key 返回面试预测专用 StageDef."""
+    for s in INTERVIEW_STAGES:
+        if s.key == key:
+            return s
+    return None

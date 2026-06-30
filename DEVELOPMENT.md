@@ -6,20 +6,21 @@
 
 ---
 
-## 📌 最新变更(2026-06-18)
+## 📌 最新变更(2026-06-30)
 
-### v0.3 — 三线并发更新
+### v0.4 — 面试题预测模块优化(风险点驱动 + 可解释 + 可验证)
 
 | 线 | 关键变化 | 详见 |
 |---|---|---|
-| 🧪 **测试套件** | `tests/` 67 单元 + 9 E2E + 30 用例压测,真实 LLM,Markdown 报告 | §4.12 |
-| ⚙️ **后端 workflow / extractors** | 移除 `eval`、新增流式回调、进度共享、强结构化 prompt + fallback | §4.13 |
-| 🎨 **前端运行态 + 历史面板** | 8 步骤进度视图、`sessionStorage` + URL `?trace_id=` 双轨状态恢复、报告顶部 CTA | §4.14 |
-| 🔗 **前后端契约** | `trace_id` 主键贯穿 URL / sessionStorage / 跳转 / 历史;NDJSON 6 类事件 | §4.15 |
+| 🎯 **风险点分层驱动** | `_extract_risk_points()` 三级分层(硬技能缺失/经验差距/关键词缺口 → 高/中/低),替代原来的粗粒度 prompt | §4.16 |
+| 🔍 **可解释增强** | 新增 `reason`/`priority`/`confidence`/`evidence_from_resume`/`evidence_from_jd` 5 个字段,每道题可追溯出题依据 | §4.16 |
+| ✅ **后处理校验 + 修正重生成** | `_validate_questions()` 6 项校验 + 修正型重生成(校验失败时构造修正 prompt 回灌 LLM) | §4.16 |
+| 🚫 **消除 _MockStage 反模式** | 流式端点使用 `INTERVIEW_STAGES` + `compute_streaming_percent`,与主分析协议一致 | §4.16 |
+| 🎨 **前端优先级筛选** | 按高/中/低优先级筛选 + 排序,展示出题原因/简历证据/JD 证据 | §4.16 |
+| 💾 **面试题结果缓存** | `InterviewCache` ORM + `load/save_interview_prediction`,按 `trace_id+prompt_version+选项` 哈希做缓存 key | §4.16 |
+| 🧪 **30 个新测试** | 风险点提取/prompt 构造/后处理校验/模型/阶段定义,总测试 97 个全部通过 | §4.16 |
 
-**质量基线**(2026-06-18,30 用例压测):通过率 **96.7%**,同岗位评分 56.2 vs 跨岗位 24.0(差 +32.1),单次分析 avg 92s。
-
-**已知 P1**:`aggregate_report` 节点旧 `eval` 路径在 LLM 输出含 `List[...]` 字面量时 `NameError`(本次改造已移除 `eval`,待回归验证)。
+**上一版基线**(2026-06-18):通过率 **96.7%**,同岗位评分 56.2 vs 跨岗位 24.0(差 +32.1),单次分析 avg 92s。
 
 ---
 
@@ -41,10 +42,11 @@
   - [4.9 并行抽取:parse_resume / parse_job 并行化](#49-并行抽取parse_resume--parse_job-并行化)
   - [4.10 面试题预测:独立页面 + 持久化缓存](#410-面试题预测独立页面--持久化缓存)
   - [4.11 工作台持久化 + 面试台贯通(本次更新)](#411-工作台持久化--面试台贯通本次更新)
-- [4.12 全流程测试套件(v0.3+)](#412-全流程测试套件v03)
-- [4.13 后端 workflow / extractors 改造(2026-06-18)](#413-后端-workflow--extractors-改造2026-06-18)
-- [4.14 前端运行态视图 + 历史面板贯通(2026-06-18)](#414-前端运行态视图--历史面板贯通2026-06-18)
-- [4.15 前后端契约:trace_id 与 NDJSON 事件流(2026-06-18)](#415-前后端契约trace_id-与-ndjson-事件流2026-06-18)
+  - [4.12 全流程测试套件(v0.3+)](#412-全流程测试套件v03)
+  - [4.13 后端 workflow / extractors 改造(2026-06-18)](#413-后端-workflow--extractors-改造2026-06-18)
+  - [4.14 前端运行态视图 + 历史面板贯通(2026-06-18)](#414-前端运行态视图--历史面板贯通2026-06-18)
+  - [4.15 前后端契约:trace_id 与 NDJSON 事件流(2026-06-18)](#415-前后端契约trace_id-与-ndjson-事件流2026-06-18)
+  - [4.16 面试题预测模块优化:风险点驱动 + 可解释 + 可验证(2026-06-30)](#416-面试题预测模块优化风险点驱动--可解释--可验证2026-06-30)
 - [5. 验证清单](#5-验证清单)
 - [6. 风险、回滚与安全](#6-风险回滚与安全)
 - [7. GitHub 发布说明](#7-github-发布说明)
@@ -1785,6 +1787,233 @@ type StreamEvent =
 
 ---
 
+### 4.16 面试题预测模块优化:风险点驱动 + 可解释 + 可验证(2026-06-30)
+
+#### 4.16.1 动机
+
+v0.2 面试题预测模块已具备"能生成"的能力,但存在 5 类工程问题:
+
+| # | 问题 | 影响 |
+|---|---|---|
+| 1 | 输入信息利用不充分:prompt 只用 `skill_gap.missing/partial`,未纳入 `weaknesses`/`hard_requirements_gaps`/`experience.notes`/`keywords.missing`/`SkillMatchItem.evidence` | 题目停留在"围绕技能名提问",缺少基于证据的深挖 |
+| 2 | 生成过程无程序级约束:一次性要求 LLM 同时生成所有类别,无后处理校验 | 类别分布不稳定/语义重复/`related_skill` 不准确/`difficulty` 与缺口等级不一致 |
+| 3 | 可解释性不足:缺少"为什么出这道题"的解释 | 用户无法判断优先准备什么,论文无法说明"系统具备推理链条" |
+| 4 | `_MockStage` 反模式:流式端点自建阶段定义,手动计算进度百分比,与主分析 `progress.py` 的 `StageDef` + `compute_streaming_percent` 协议不一致 | 前后端协议分裂,维护成本高 |
+| 5 | 面试题结果无缓存:同一分析结果反复进入页面时重复调用 LLM | 浪费 token + 响应慢 |
+
+#### 4.16.2 数据模型增强(`app/models/interview.py`)
+
+| 新增字段 | 类型 | 说明 |
+|---|---|---|
+| `reason` | `str` | 出题原因:为什么预测这道题,对应哪项简历短板或 JD 要求 |
+| `priority` | `QuestionPriority` 枚举 | 优先级:high(一级风险点)/medium(二级风险点)/low(三级风险点) |
+| `confidence` | `float` | 预测置信度 0-1,越高表示越确信此题会出现 |
+| `evidence_from_resume` | `Optional[str]` | 简历中支撑此题预测的证据片段 |
+| `evidence_from_jd` | `Optional[str]` | JD 中支撑此题预测的证据片段 |
+
+新增常量:
+- `PROMPT_VERSION = "v2"` — 缓存 key 组成部分 + A/B 对比标记
+- `STRATEGY_VERSION = "risk_stratified"` — 生成策略版本
+
+#### 4.16.3 风险点分层(`_extract_risk_points`)
+
+从缓存数据中提取三级风险点:
+
+| 等级 | 来源 | 对应 priority |
+|---|---|---|
+| 一级(high) | `skill_gap.missing` + `hard_requirements_gaps` + `weaknesses` | `high` → difficulty=hard |
+| 二级(medium) | `skill_gap.partial` + `experience.notes` + `keywords.missing` | `medium` → difficulty=medium/hard |
+| 三级(low) | `skill_gap.matched`(可能被深问) + `strengths`(项目追问) | `low` → difficulty=easy |
+
+数据结构:
+
+```python
+@dataclass
+class RiskPoint:
+    description: str
+    level: str          # "high" / "medium" / "low"
+    source: str         # "skill_gap" / "experience" / "keyword" / ...
+    related_skill: str = ""
+    evidence: str = ""
+
+@dataclass
+class RiskProfile:
+    high: list[RiskPoint]
+    medium: list[RiskPoint]
+    low: list[RiskPoint]
+```
+
+#### 4.16.4 Prompt 增强(v2 — 5 段式)
+
+| 段 | 内容 | 对比 v1 |
+|---|---|---|
+| 1 | 候选人核心背景摘要 | 保留 |
+| 2 | 岗位核心要求摘要 | 保留 |
+| 3 | **风险点分层列表**(核心增强) | v1 无 |
+| 4 | **经验与关键词证据**(新增) | v1 无 |
+| 5 | 输出规则与校验要求(含新字段 `reason`/`priority`/`confidence`/`evidence_from_*`) | v1 仅基础字段 |
+
+核心规则变更:
+- 先覆盖一级风险点,再覆盖二级,三级仅补量
+- 每道题必须包含 `reason` + `priority` + `confidence`
+- 严禁通用开场题(黑名单:`请自我介绍`/`你的优缺点`等)
+- 优先级→难度映射:high→hard, medium→medium/hard, low→easy
+
+#### 4.16.5 后处理校验(`_validate_questions`)
+
+6 项校验:
+
+| # | 校验项 | 失败处理 |
+|---|---|---|
+| 1 | 题量 8-12 道 | 记录 issue |
+| 2 | 各类别题量在合理范围(technical 4-6 / behavioral 2-3 / project 2-3 / situational 0-1) | 记录 issue |
+| 3 | 同一 `related_skill + category` 不重复出现 | 记录 issue |
+| 4 | 通用题检测(黑名单匹配) | 记录 issue |
+| 5 | `priority` 与 `difficulty` 大致匹配(high→hard, medium→medium/hard, low→easy/medium) | 记录 issue |
+| 6 | — | — |
+
+校验失败时触发**修正型重生成**(最多 1 次):
+1. 构造修正 prompt,列出具体问题
+2. 将修正 prompt 追加到原始 prompt 末尾,再次调用 LLM
+3. 修正后再校验;仍失败则使用当前结果(降级,不阻塞)
+
+#### 4.16.6 消除 `_MockStage` 反模式
+
+**改动前**(反模式):
+
+```python
+# routes_interview.py 自建阶段定义
+_MockStage = namedtuple("_MockStage", ["key", "label", "percent_start", "percent_end"])
+PREDICT_STAGE = _MockStage("predict", "LLM 生成面试题", 0, 95)
+# 手动计算进度: pct = min(95, 5 + chars * 0.03)
+```
+
+**改动后**(与主分析一致):
+
+```python
+# progress.py 新增面试专用阶段
+INTERVIEW_STAGES: tuple[StageDef, ...] = (
+    StageDef(0, "load_cache",  "读取分析缓存",    0,  10, False),
+    StageDef(1, "build_prompt", "构造预测 Prompt", 10,  30, False),
+    StageDef(2, "predict",      "LLM 生成面试题",  30,  95, True),
+    StageDef(3, "validate",     "校验与修正",      95,  99, False),
+)
+
+# routes_interview.py 使用 compute_streaming_percent
+pct = compute_streaming_percent(predict_stage, "streaming", chars)
+```
+
+收益:
+- 进度计算与主分析完全一致(`compute_streaming_percent` 统一逻辑)
+- 阶段定义分离(`INTERVIEW_STAGES` 独立于主分析 `STAGES`),避免复用导致前端协议混乱
+- 新增 `validate` 阶段,前端能看到校验进度
+
+#### 4.16.7 面试题结果缓存
+
+新增 `InterviewCache` ORM:
+
+```python
+class InterviewCache(Base):
+    __tablename__ = "interview_cache"
+    id: Mapped[str]             # SHA256(trace_id:prompt_version:focus:count:bias)[:40]
+    trace_id: Mapped[str]       # 关联的分析缓存
+    prompt_version: Mapped[str]  # "v2"
+    created_at: Mapped[datetime]
+    prediction_result: Mapped[Optional[dict]]  # JSONB
+```
+
+缓存 key 设计:同一分析结果 + 不同生成选项(focus/question_count/difficulty_bias) → 不同缓存条目,支持 A/B 对比。
+
+新增缓存服务函数:
+
+| 函数 | 用途 |
+|---|---|
+| `load_interview_prediction(session, trace_id, prompt_version, ...)` | 读取缓存(按选项匹配) |
+| `save_interview_prediction(session, trace_id, result, ...)` | 写入/覆盖缓存 |
+| `safe_save_interview_prediction(...)` | 降级写入(DB 不可用时静默跳过) |
+
+`predict()` 方法优先读缓存;`force_regenerate=True` 时跳过缓存。
+
+#### 4.16.8 API 可选参数
+
+`InterviewPredictRequest` 新增:
+
+| 字段 | 默认值 | 说明 |
+|---|---|---|
+| `focus` | `"balanced"` | 侧重方向:balanced / technical / project / behavioral |
+| `question_count` | `0` | 期望题数(0=自动 8-12) |
+| `difficulty_bias` | `""` | 难度偏好:easy / medium / hard / 空=自动 |
+| `force_regenerate` | `false` | 强制重新生成,忽略缓存 |
+
+#### 4.16.9 前端优先级筛选 + 新字段展示
+
+**筛选栏**(interview.html + interview.js):
+- 按钮:全部 / 高优先 / 中优先 / 低优先
+- 点击后筛选 `allQuestions` 并重新渲染
+- 当前筛选状态高亮
+
+**题目卡片增强**:
+- 优先级标签(红/黄/绿):`高优先` / `中优先` / `低优先`
+- 出题原因:可折叠 `<details>` 区,展示 `reason`
+- 简历证据:`📄 简历证据: ...`
+- JD 证据:`📌 JD 证据: ...`
+
+**默认排序**:priority(high→medium→low) → confidence → difficulty
+
+#### 4.16.10 数据库迁移
+
+新增迁移 `alembic/versions/0002_add_interview_cache.py`:
+
+```bash
+alembic upgrade head
+# Running upgrade 0001_add_analysis_cache -> 0002_add_interview_cache
+```
+
+#### 4.16.11 测试覆盖
+
+新增 `tests/unit/test_interview.py`,30 个测试:
+
+| 分类 | 用例数 | 覆盖内容 |
+|---|---:|---|
+| 风险点提取 | 8 | missing→high / weaknesses→high / hard_req_gaps→high / partial→medium / exp_notes→medium / kw_missing→medium / matched→low / 空数据 |
+| Prompt 构造 | 6 | 含风险分段 / weaknesses / keywords_missing / experience_notes / 新字段规则 |
+| 后处理校验 | 6 | 合格输出 / 题量不足 / 题量过多 / 通用题 / 重复题 / 优先级-难度不匹配 |
+| 修正提示 | 1 | 构造修正 prompt |
+| 数据模型 | 5 | 新字段默认值 / 全字段赋值 / QuestionPriority 枚举 / 版本号 / 序列化 |
+| 面试阶段 | 4 | INTERVIEW_STAGES 定义 / 按 key 查找 / 未知 key / 百分比区间递增 / 进度计算 |
+
+运行结果:**97 个单元测试全部通过,通过率 100%**。
+
+#### 4.16.12 涉及文件清单
+
+| 文件 | 变更 |
+|---|---|
+| `app/models/interview.py` | +`QuestionPriority` 枚举 +5 个新字段 +`PROMPT_VERSION`/`STRATEGY_VERSION` +`PRIORITY_LABELS` |
+| `app/services/interview_service.py` | **重写**:风险点分层(`_extract_risk_points`) + 5 段式 prompt(`_build_user_prompt`) + 后处理校验(`_validate_questions`) + 修正重生成(`_build_correction_prompt`) + 缓存读写 + 可选参数 |
+| `app/workflow/progress.py` | +`INTERVIEW_STAGES` 4 阶段定义 +`interview_stage_by_key()` |
+| `app/api/routes_interview.py` | **重写**:消除 `_MockStage`,使用 `INTERVIEW_STAGES` + `compute_streaming_percent`;请求模型增加 4 个可选参数 |
+| `app/models/cache.py` | +`InterviewCache` ORM |
+| `app/core/cache.py` | +`load_interview_prediction` / `save_interview_prediction` / `safe_save_interview_prediction` |
+| `alembic/versions/0002_add_interview_cache.py` | 新增迁移 |
+| `tests/unit/test_interview.py` | +30 个单元测试 |
+| `static/interview.js` | 优先级筛选 + 按优先级排序 + 新字段展示(reason/evidence/priority) |
+| `static/interview.html` | 筛选栏 + 优先级标签/证据/出题原因模板元素 |
+| `static/interview.css` | 筛选栏/优先级标签/证据展示样式 |
+
+#### 4.16.13 决策回顾
+
+| 决策 | 备选 | 理由 |
+|---|---|---|
+| 风险点分层后入 prompt | 直接把全量 match_report 塞给 LLM | 分层让 LLM 优先覆盖高风险点,全量塞入 LLM 可能平均用力 |
+| 后处理校验 + 修正重生成 | 仅靠 prompt 约束 | prompt 是软约束,后处理是硬校验;修正重生成比从头重来成本更低 |
+| `InterviewCache` 按 trace_id+prompt_version+选项 哈希 | 只用 trace_id | 同一分析可按不同 focus/count/bias 生成多组题目,支持 A/B 对比 |
+| `INTERVIEW_STAGES` 独立于主分析 `STAGES` | 复用 `STAGES` 表 | 面试预测只有 4 个阶段,与主分析 8 阶段完全不同;复用会导致前端协议混乱 |
+| `compute_streaming_percent` 统一 | 每个模块自己算进度 | 统一算法保证前端行为一致,减少维护成本 |
+| 结果按优先级排序默认展示 | 按类别分组 | 用户最关心"先准备什么",优先级排序比类别分组更实用;类别分组作为二级排序 |
+| 修正型重生成最多 1 次 | 无限重试 | 避免无限循环;1 次修正已覆盖大部分场景,仍失败则降级使用 |
+
+---
+
 ## 5. 验证清单
 
 ### 5.1 基础(8 条)
@@ -1980,7 +2209,8 @@ Invoke-RestMethod -Uri "https://api.github.com/repos/<owner>/<repo>/contents/<pa
 | 2026-06-18 | **后端 workflow / extractors 改造**:`aggregate_report` 移除 `eval` 改 `LLMScoreOutput` Pydantic Schema;`generate_suggestions` 双层 fallback;`LLMClient._invoke_stream` 流式 + 三阶段回调;`progress.py` Lock + 共享变量替代 ContextVar;`graph.py` 节点装饰器统一接入 stage;`analyzer.py` 同步/流式入口分离,详见 §4.13 |
 | 2026-06-18 | **前端运行态视图 + 历史面板贯通**:`<section class="run-view">` 8 步骤进度视图;`streamAnalyze()` 拉 `/api/v1/analyze/stream` NDJSON;历史面板子系统;`sessionStorage` + URL `?trace_id=` 双轨状态恢复;报告顶部 CTA,详见 §4.14 |
 | 2026-06-18 | **前后端契约**:`trace_id` 主键贯穿 URL / sessionStorage / 跳转 CTA / 历史面板;NDJSON 6 类事件契约,详见 §4.15 |
+| 2026-06-30 | **v0.4 面试题预测模块优化**:风险点分层驱动(`_extract_risk_points`) + 5 段式增强 prompt + 后处理校验(`_validate_questions`) + 修正型重生成 + 消除 `_MockStage` 反模式(`INTERVIEW_STAGES` + `compute_streaming_percent`) + 数据模型增强(reason/priority/confidence/evidence) + 前端优先级筛选排序 + 面试题结果缓存(`InterviewCache`) + API 可选参数(focus/question_count/difficulty_bias/force_regenerate) + 30 个新测试(97 全通过),详见 §4.16 |
 
 ---
 
-**最后更新**:2026-06-18 · 维护者:`cxzrdxy`
+**最后更新**:2026-06-30 · 维护者:`cxzrdxy`

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -15,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
-from app.models.cache import AnalysisCache
+from app.models.cache import AnalysisCache, InterviewCache
 
 logger = get_logger(__name__)
 
@@ -200,5 +201,92 @@ async def safe_save_analysis(
             "缓存写入失败(已降级,不影响分析结果): trace_id=%s err=%s",
             trace_id,
             exc,
+        )
+        return False
+
+
+# ---------------------------------------------------------------------------
+# 面试题预测缓存
+# ---------------------------------------------------------------------------
+
+
+def _interview_cache_id(trace_id: str, prompt_version: str, focus: str = "", question_count: int = 0, difficulty_bias: str = "") -> str:
+    """生成面试题缓存主键:trace_id + prompt_version + 生成选项的哈希."""
+    raw = f"{trace_id}:{prompt_version}:{focus}:{question_count}:{difficulty_bias}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:40]
+
+
+async def load_interview_prediction(
+    session: AsyncSession,
+    trace_id: str,
+    prompt_version: str = "v2",
+    *,
+    focus: str = "",
+    question_count: int = 0,
+    difficulty_bias: str = "",
+) -> Optional[dict[str, Any]]:
+    """读取面试题预测缓存.
+
+    返回 None 表示缓存不存在或版本不匹配.
+    """
+    cache_id = _interview_cache_id(trace_id, prompt_version, focus, question_count, difficulty_bias)
+    stmt = select(InterviewCache).where(InterviewCache.id == cache_id)
+    result = await session.execute(stmt)
+    cache = result.scalar_one_or_none()
+    if cache is None:
+        return None
+    return cache.prediction_result
+
+
+async def save_interview_prediction(
+    session: AsyncSession,
+    trace_id: str,
+    prediction_result: dict[str, Any],
+    prompt_version: str = "v2",
+    *,
+    focus: str = "",
+    question_count: int = 0,
+    difficulty_bias: str = "",
+) -> None:
+    """写入面试题预测缓存(upsert)."""
+    cache_id = _interview_cache_id(trace_id, prompt_version, focus, question_count, difficulty_bias)
+    cache = InterviewCache(
+        id=cache_id,
+        trace_id=trace_id,
+        prompt_version=prompt_version,
+        created_at=datetime.utcnow(),
+        prediction_result=prediction_result,
+    )
+    await session.merge(cache)
+    await session.commit()
+    logger.info(
+        "面试题缓存写入: trace_id=%s prompt_version=%s cache_id=%s",
+        trace_id, prompt_version, cache_id,
+    )
+
+
+async def safe_save_interview_prediction(
+    trace_id: str,
+    prediction_result: dict[str, Any],
+    prompt_version: str = "v2",
+    *,
+    focus: str = "",
+    question_count: int = 0,
+    difficulty_bias: str = "",
+) -> bool:
+    """带降级的面试题缓存写入."""
+    try:
+        from app.core.database import get_session_factory
+        factory = get_session_factory()
+        async with factory() as session:
+            await save_interview_prediction(
+                session, trace_id, prediction_result, prompt_version,
+                focus=focus, question_count=question_count, difficulty_bias=difficulty_bias,
+            )
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "面试题缓存写入失败(已降级): trace_id=%s err=%s",
+            trace_id, exc,
         )
         return False

@@ -1,5 +1,5 @@
 /* ============================================================
-   面试题预测页面 — 交互逻辑
+   面试题预测页面 — 交互逻辑 (v2: 优先级筛选 + 新字段展示)
    ============================================================ */
 (() => {
   "use strict";
@@ -24,13 +24,18 @@
   })();
 
   // ---- 类别定义 ----
-  // 顺序固定,与设计文档一致:技术 → 行为 → 项目 → 情景
   const CATEGORIES = [
     { key: "technical", num: "01", title: "技术题" },
     { key: "behavioral", num: "02", title: "行为题" },
     { key: "project", num: "03", title: "项目深挖" },
     { key: "situational", num: "04", title: "情景题" },
   ];
+
+  // 优先级排序权重
+  const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
+
+  // 优先级中文标签
+  const PRIORITY_LABELS = { high: "高优先", medium: "中优先", low: "低优先" };
 
   // ---- DOM ----
   const fallback = $("#fallback");
@@ -49,6 +54,18 @@
   const adviceText = $("#adviceText");
   const resCount = $("#resCount");
   const resTime = $("#resTime");
+
+  // 筛选栏
+  const filterBar = $("#filterBar");
+  const filterAll = $("#filterAll");
+  const filterHigh = $("#filterHigh");
+  const filterMedium = $("#filterMedium");
+  const filterLow = $("#filterLow");
+
+  // 当前筛选状态
+  let currentFilter = "all";
+  // 所有题目(扁平列表)
+  let allQuestions = [];
 
   // ---- URL 参数 ----
   const params = new URLSearchParams(location.search);
@@ -81,7 +98,6 @@
     if (msgEl) msgEl.textContent = msg;
     fallback.hidden = false;
 
-    // 绑定一次性提交(避免重复绑定)
     const form = $("#traceForm");
     if (form && !form._wired) {
       form._wired = true;
@@ -100,10 +116,6 @@
   // 2. 渲染摘要
   // ============================================================
   function renderSummary(raw) {
-    // 兼容两种后端返回:
-    //   A) 摘要: { trace_id, resume_name, job_title, overall_score, created_at }
-    //   B) 全量: { trace_id, resume_data, job_requirement, match_report, ... }
-    // 注意:job_requirement 的岗位字段叫 position,不是 title
     const resume = raw.resume_data || {};
     const job = raw.job_requirement || {};
     const report = raw.match_report || {};
@@ -174,7 +186,6 @@
       const { value, done } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      // 按行切分,最后一行可能不完整,留到下次
       const lines = buffer.split("\n");
       buffer = lines.pop();
 
@@ -193,7 +204,6 @@
         });
       }
     }
-    // 流尾 buffer 收尾
     if (buffer.trim()) {
       try {
         handleEvent(JSON.parse(buffer), state => {
@@ -205,6 +215,7 @@
     }
 
     if (questions.length > 0) {
+      allQuestions = questions;
       renderResult(questions, summary, durMs);
     } else if (errCard.hidden) {
       showError("未返回任何题目,请稍后重试。");
@@ -218,7 +229,6 @@
     if (!evt || !evt.type) return;
     switch (evt.type) {
       case "meta":
-        // 静默
         break;
       case "stage_start":
         setProgress(0, `开始:${evt.label || "预测面试题"}`);
@@ -246,11 +256,54 @@
   }
 
   // ============================================================
-  // 5. 渲染结果(按类别分组)
+  // 5. 优先级筛选
+  // ============================================================
+  function applyFilter(filter) {
+    currentFilter = filter;
+    // 更新按钮状态
+    [filterAll, filterHigh, filterMedium, filterLow].forEach(btn => {
+      if (btn) btn.classList.remove("active");
+    });
+    const activeBtn = { all: filterAll, high: filterHigh, medium: filterMedium, low: filterLow }[filter];
+    if (activeBtn) activeBtn.classList.add("active");
+
+    // 筛选题目
+    const filtered = filter === "all"
+      ? allQuestions
+      : allQuestions.filter(q => (q.priority || "medium") === filter);
+
+    // 重新渲染
+    const summary = adviceText.textContent || "";
+    renderQuestionList(filtered, summary);
+  }
+
+  if (filterAll) filterAll.addEventListener("click", () => applyFilter("all"));
+  if (filterHigh) filterHigh.addEventListener("click", () => applyFilter("high"));
+  if (filterMedium) filterMedium.addEventListener("click", () => applyFilter("medium"));
+  if (filterLow) filterLow.addEventListener("click", () => applyFilter("low"));
+
+  // ============================================================
+  // 6. 渲染结果(按优先级排序 + 按类别分组)
   // ============================================================
   function renderResult(questions, summary, durMs) {
     progressCard.hidden = true;
 
+    // 按优先级排序(high → medium → low)
+    const sorted = [...questions].sort(
+      (a, b) => (PRIORITY_ORDER[a.priority] ?? 1) - (PRIORITY_ORDER[b.priority] ?? 1)
+    );
+
+    allQuestions = sorted;
+    renderQuestionList(sorted, summary);
+
+    resCount.textContent = `${questions.length} 道题`;
+    resTime.textContent = durMs > 0 ? `耗时 ${(durMs / 1000).toFixed(1)}s` : "—";
+
+    result.hidden = false;
+    filterBar.hidden = false;
+  }
+
+  function renderQuestionList(questions, summary) {
     // 按类别分组
     const grouped = {};
     for (const c of CATEGORIES) grouped[c.key] = [];
@@ -260,7 +313,6 @@
       grouped[k].push(q);
     }
 
-    // 渲染
     catList.innerHTML = "";
     const tplCat = $("#tplCat");
     const tplQ = $("#tplQ");
@@ -279,22 +331,16 @@
         body.appendChild(buildQuestionNode(q, tplQ));
       }
 
-      // 折叠/展开
       const head = $("[data-toggle]", node);
       head.addEventListener("click", () => {
         node.classList.toggle("expanded");
       });
-      // 默认展开
       node.classList.add("expanded");
 
       catList.appendChild(node);
     }
 
     adviceText.textContent = summary || "暂无备考建议。";
-    resCount.textContent = `${questions.length} 道题`;
-    resTime.textContent = durMs > 0 ? `耗时 ${(durMs / 1000).toFixed(1)}s` : "—";
-
-    result.hidden = false;
   }
 
   function buildQuestionNode(q, tpl) {
@@ -305,9 +351,17 @@
     diffEl.textContent = diff;
     diffEl.classList.add(diff);
 
+    // 优先级标签
+    const priority = q.priority || "medium";
+    const priEl = $("[data-priority]", node);
+    if (priEl) {
+      priEl.textContent = PRIORITY_LABELS[priority] || priority;
+      priEl.classList.add(priority);
+    }
+
     const skillEl = $("[data-skill]", node);
     if (q.related_skill) {
-      skillEl.textContent = `🏷️ ${q.related_skill}`;
+      skillEl.textContent = q.related_skill;
       skillEl.hidden = false;
     }
 
@@ -315,6 +369,28 @@
     $("[data-intent]", node).textContent = q.intent || "—";
     $("[data-direction]", node).textContent = q.suggested_answer_direction || "—";
 
+    // 出题原因
+    const reasonEl = $("[data-reason]", node);
+    if (reasonEl && q.reason) {
+      $("[data-reason-text]", node).textContent = q.reason;
+      reasonEl.hidden = false;
+    }
+
+    // 简历证据
+    const resumeEvidenceEl = $("[data-resume-evidence]", node);
+    if (resumeEvidenceEl && q.evidence_from_resume) {
+      $("[data-resume-evidence-text]", node).textContent = q.evidence_from_resume;
+      resumeEvidenceEl.hidden = false;
+    }
+
+    // JD 证据
+    const jdEvidenceEl = $("[data-jd-evidence]", node);
+    if (jdEvidenceEl && q.evidence_from_jd) {
+      $("[data-jd-evidence-text]", node).textContent = q.evidence_from_jd;
+      jdEvidenceEl.hidden = false;
+    }
+
+    // 原 JD 关联字段
     const jdEl = $("[data-jd]", node);
     if (q.related_jd_requirement) {
       $("[data-jd-text]", node).textContent = q.related_jd_requirement;

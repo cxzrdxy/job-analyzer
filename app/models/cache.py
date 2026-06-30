@@ -61,3 +61,33 @@ class AnalysisCache(Base):
             f"resume={self.resume_name!r} job={self.job_title!r} "
             f"score={self.overall_score:.1f}>"
         )
+
+
+class InterviewCache(Base):
+    """面试题预测结果缓存表.
+
+    用于:
+    1. 避免同一分析结果重复调用 LLM 生成面试题
+    2. 按 prompt_version 区分不同生成策略的输出(支持 A/B 对比)
+    3. 为论文实验提供可追溯的预测结果数据
+    """
+
+    __tablename__ = "interview_cache"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    prompt_version: Mapped[str] = mapped_column(String(20), nullable=False, default="v2")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # ---- 完整预测结果(JSONB) ----
+    prediction_result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    __table_args__ = (
+        Index("ix_interview_cache_trace_id", "trace_id"),
+    )
+
+    def __repr__(self) -> str:  # pragma: no cover
+        return (
+            f"<InterviewCache id={self.id!r} trace_id={self.trace_id!r} "
+            f"prompt_version={self.prompt_version!r}>"
+        )

@@ -1,8 +1,8 @@
 {
-  "started_at": "2026-06-18T16:20:02.560824",
-  "duration_s": 0.265,
-  "total": 67,
-  "passed": 67,
+  "started_at": "2026-06-30T16:18:54.432520",
+  "duration_s": 0.359,
+  "total": 97,
+  "passed": 97,
   "failed": 0,
   "error": 0,
   "skipped": 0,
@@ -100,6 +100,276 @@
     {
       "name": "test_workflow_error_status",
       "module": "tests.unit.test_errors",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_correction_prompt",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_user_prompt_contains_experience_notes",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_user_prompt_contains_keywords_missing",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_user_prompt_contains_risk_sections",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_user_prompt_contains_weaknesses",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_build_user_prompt_new_fields_in_rules",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_compute_streaming_percent_interview_stage",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_empty_data",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_experience_notes_as_medium",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_hard_req_gaps_as_high",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_keywords_missing_as_medium",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_matched_as_low",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_missing_skills_as_high",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_partial_as_medium",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_extract_risk_points_weaknesses_as_high",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_prediction_output_model_dump",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_question_new_fields",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_question_with_all_fields",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_stage_by_key",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_stage_by_key_unknown",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_stages_defined",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_interview_stages_percent_ranges",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_prompt_version_defined",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_question_priority_enum",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_validate_duplicate_questions",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_validate_generic_question",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_validate_good_output",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_validate_priority_difficulty_mismatch",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 0.0,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_validate_too_few_questions",
+      "module": "tests.unit.test_interview",
+      "tag": "unit",
+      "status": "passed",
+      "duration_ms": 14.999999999417923,
+      "message": "",
+      "traceback": ""
+    },
+    {
+      "name": "test_validate_too_many_questions",
+      "module": "tests.unit.test_interview",
       "tag": "unit",
       "status": "passed",
       "duration_ms": 0.0,
@@ -444,7 +714,7 @@
       "module": "tests.unit.test_parsers",
       "tag": "unit",
       "status": "passed",
-      "duration_ms": 218.00000000803266,
+      "duration_ms": 250.0,
       "message": "",
       "traceback": ""
     },
@@ -462,7 +732,7 @@
       "module": "tests.unit.test_parsers",
       "tag": "unit",
       "status": "passed",
-      "duration_ms": 46.999999991385266,
+      "duration_ms": 93.99999999732245,
       "message": "",
       "traceback": ""
     },

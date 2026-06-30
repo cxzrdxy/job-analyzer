@@ -30,6 +30,20 @@ from app.core.errors import AppError, NotFoundError
 from app.core.logging import get_logger
 from app.models.response import ApiResponse
 from app.services.interview_service import InterviewService
+from app.workflow.progress import (
+    INTERVIEW_STAGES,
+    StageDef,
+    compute_streaming_percent,
+    get_current_stage,
+    interview_stage_by_key,
+    make_done_event,
+    make_error_event,
+    make_meta_event,
+    make_progress_event,
+    make_stage_end_event,
+    make_stage_start_event,
+    set_current_stage,
+)
 
 logger = get_logger(__name__)
 
@@ -53,6 +67,10 @@ class InterviewPredictRequest(BaseModel):
     """面试题预测请求."""
 
     trace_id: str = Field(..., description="之前分析结果的 trace_id")
+    focus: str = Field("balanced", description="侧重方向:balanced / technical / project / behavioral")
+    question_count: int = Field(0, description="期望题数,0=自动(8-12)", ge=0, le=20)
+    difficulty_bias: str = Field("", description="难度偏好:easy / medium / hard / 空=自动")
+    force_regenerate: bool = Field(False, description="强制重新生成,忽略缓存")
 
 
 # ---------------------------------------------------------------------------
@@ -64,80 +82,69 @@ def _json_line(obj: dict) -> bytes:
     return (json.dumps(obj, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def _stage_event(stage: str, percent: float, message: str = "") -> bytes:
-    return _json_line(
-        {
-            "type": "progress",
-            "stage": stage,
-            "percent": round(percent, 1),
-            "message": message,
-        }
-    )
-
-
-def _done_event(data: dict, duration_ms: float) -> bytes:
-    return _json_line(
-        {
-            "type": "done",
-            "data": data,
-            "duration_ms": round(duration_ms, 1),
-        }
-    )
-
-
-def _error_event(stage: str, code: str, message: str) -> bytes:
-    return _json_line(
-        {"type": "error", "stage": stage, "code": code, "message": message}
-    )
-
-
 async def _predict_stream_events(trace_id: str) -> AsyncIterator[bytes]:
     """面试题预测流式事件生成器.
 
-    阶段:
-      0% — 读取缓存
-      30% — 构造 prompt
-      40%–95% — LLM 流式输出(progress 事件)
-      100% — done
+    使用 progress.py 的 INTERVIEW_STAGES 定义,与主分析协议一致:
+      0%-10%  — 读取缓存(load_cache)
+      10%-30% — 构造 prompt(build_prompt)
+      30%-95% — LLM 流式输出(predict,含 token 级进度)
+      95%-99% — 校验与修正(validate)
     """
     t0 = time.monotonic()
-    stage_key = "predict"
 
     try:
-        # ---- 0% — meta ----
-        yield _json_line(
-            {
-                "type": "meta",
-                "trace_id": trace_id,
-                "stage": stage_key,
-                "stages": [{"key": stage_key, "label": "预测面试题", "percent_range": [0, 100]}],
-            }
-        )
-        yield _json_line(
-            {"type": "stage_start", "stage": stage_key, "label": "预测面试题"}
-        )
+        # ---- meta 事件 ----
+        yield _json_line(make_meta_event(trace_id))
+        # 重写 stages 为面试专用阶段
+        meta_stages = [
+            {"index": s.index, "key": s.key, "label": s.label, "span": [s.percent_start, s.percent_end]}
+            for s in INTERVIEW_STAGES
+        ]
+        # 修正: meta 事件中的 stages 应使用面试专用阶段
+        # 由于 make_meta_event 使用全局 STAGES,此处手动覆盖
+        meta_override = make_meta_event(trace_id)
+        meta_override["stages"] = meta_stages
+        yield _json_line(meta_override)
 
-        # ---- 10% — 读取缓存 ----
-        yield _stage_event(stage_key, 10, "读取分析缓存…")
+        # ---- 阶段 0: load_cache ----
+        load_stage = interview_stage_by_key("load_cache")
+        assert load_stage is not None
+        yield _json_line(make_stage_start_event(load_stage))
+        set_current_stage(load_stage)
+
         factory = get_session_factory()
         async with factory() as session:
             cached = await load_analysis(session, trace_id)
         if cached is None:
-            yield _error_event(stage_key, "not_found", f"分析结果不存在或已过期: {trace_id}")
+            yield _json_line(make_error_event("load_cache", "not_found", f"分析结果不存在或已过期: {trace_id}"))
             return
 
-        from app.services.interview_service import _SYSTEM_PROMPT, _build_user_prompt
+        yield _json_line(make_stage_end_event(load_stage))
 
-        prompt = _build_user_prompt(cached)
-        yield _stage_event(stage_key, 30, f"Prompt 已构建({len(prompt)} 字符)")
+        # ---- 阶段 1: build_prompt ----
+        build_stage = interview_stage_by_key("build_prompt")
+        assert build_stage is not None
+        yield _json_line(make_stage_start_event(build_stage))
+        set_current_stage(build_stage)
 
-        # ---- 40%–95% — LLM 流式调用(带 progress 回调) ----
+        from app.services.interview_service import _SYSTEM_PROMPT, _build_user_prompt, _extract_risk_points
+
+        risk_profile = _extract_risk_points(cached)
+        prompt = _build_user_prompt(cached, risk_profile)
+        pct = compute_streaming_percent(build_stage, "streaming", len(prompt))
+        yield _json_line(make_progress_event(build_stage, pct, message=f"Prompt 已构建({len(prompt)} 字符)"))
+
+        yield _json_line(make_stage_end_event(build_stage))
+
+        # ---- 阶段 2: predict(LLM 流式) ----
+        predict_stage = interview_stage_by_key("predict")
+        assert predict_stage is not None
+        yield _json_line(make_stage_start_event(predict_stage))
+        set_current_stage(predict_stage)
+
         from app.extractors.llm_client import LLMClient
         from app.models.interview import InterviewPredictionOutput
-        from app.workflow.progress import set_current_stage, get_current_stage
-
-        stage_obj = _MockStage(stage_key, "预测面试题", 0, 100)
-        set_current_stage(stage_obj)
 
         llm = LLMClient()
         loop = asyncio.get_running_loop()
@@ -154,7 +161,6 @@ async def _predict_stream_events(trace_id: str) -> AsyncIterator[bytes]:
 
         async def run_llm() -> None:
             try:
-                # chat_json 走流式路径(progress_cb 存在)
                 output = await loop.run_in_executor(
                     None,
                     lambda: llm.chat_json(
@@ -181,21 +187,21 @@ async def _predict_stream_events(trace_id: str) -> AsyncIterator[bytes]:
                 if kind == "progress":
                     _, phase, info = item
                     chars = info.get("chars", 0)
-                    # 把字符数映射到 40%–95%
-                    # 经验值:一次完整输出约 2000-4000 字符
-                    pct = 40 + min(55, (chars / 4000) * 55)
-                    yield _stage_event(stage_key, pct, f"LLM 已生成 {chars} 字符")
+                    # 使用 compute_streaming_percent 计算 token 级进度
+                    pct = compute_streaming_percent(predict_stage, phase, chars)
+                    msg = f"LLM 已生成 {chars} 字符" if chars else ""
+                    yield _json_line(make_progress_event(predict_stage, pct, message=msg, chars=chars))
                 elif kind == "done":
                     _, result = item
                     break
                 elif kind == "app_error":
                     _, exc = item
-                    yield _error_event(stage_key, exc.code, str(exc))
+                    yield _json_line(make_error_event("predict", exc.code, str(exc)))
                     return
                 elif kind == "exception":
                     _, exc = item
                     logger.exception("面试题生成失败 trace_id=%s", trace_id)
-                    yield _error_event(stage_key, "predict_error", str(exc))
+                    yield _json_line(make_error_event("predict", "predict_error", str(exc)))
                     return
         finally:
             set_current_stage(None)
@@ -207,33 +213,76 @@ async def _predict_stream_events(trace_id: str) -> AsyncIterator[bytes]:
                     pass
 
         if result is None:
-            yield _error_event(stage_key, "predict_error", "LLM 未返回结果")
+            yield _json_line(make_error_event("predict", "predict_error", "LLM 未返回结果"))
             return
 
-        # ---- 100% — done ----
-        yield _stage_event(stage_key, 100, "生成完成")
-        yield _json_line({"type": "stage_end", "stage": stage_key})
+        yield _json_line(make_stage_end_event(predict_stage))
+
+        # ---- 阶段 3: validate ----
+        validate_stage = interview_stage_by_key("validate")
+        assert validate_stage is not None
+        yield _json_line(make_stage_start_event(validate_stage))
+        set_current_stage(validate_stage)
+
+        from app.services.interview_service import _validate_questions, _build_correction_prompt
+        from app.models.interview import QuestionPriority
+
+        validation = _validate_questions(result)
+        if not validation.passed:
+            logger.warning("流式面试题校验失败 trace_id=%s issues=%s", trace_id, validation.issues)
+            correction = _build_correction_prompt(validation.issues)
+            corrected_prompt = prompt + correction
+            yield _json_line(make_progress_event(validate_stage, validate_stage.half, message="校验未通过,触发修正重生成…"))
+            try:
+                result = await loop.run_in_executor(
+                    None,
+                    lambda: llm.chat_json(
+                        system=_SYSTEM_PROMPT,
+                        user=corrected_prompt,
+                        schema=InterviewPredictionOutput,
+                        max_retries=1,
+                    ),
+                )
+                revalidation = _validate_questions(result)
+                if not revalidation.passed:
+                    logger.warning("修正后仍有问题 trace_id=%s issues=%s", trace_id, revalidation.issues)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("修正型重生成失败 trace_id=%s err=%s", trace_id, exc)
+
+        # 按优先级排序
+        _priority_order = {"high": 0, "medium": 1, "low": 2}
+        result.questions.sort(key=lambda q: _priority_order.get(q.priority.value, 1))
+
+        yield _json_line(make_stage_end_event(validate_stage))
+
+        # ---- done ----
         duration_ms = (time.monotonic() - t0) * 1000
-        yield _done_event(
-            {
-                "trace_id": trace_id,
-                "interview_questions": result.model_dump(),
+
+        from app.models.interview import PROMPT_VERSION, STRATEGY_VERSION
+
+        done_data = {
+            "trace_id": trace_id,
+            "interview_questions": result.model_dump(),
+            "prompt_version": PROMPT_VERSION,
+            "strategy_version": STRATEGY_VERSION,
+            "risk_profile": {
+                "high_count": len(risk_profile.high),
+                "medium_count": len(risk_profile.medium),
+                "low_count": len(risk_profile.low),
             },
-            duration_ms,
-        )
+        }
+        yield _json_line(make_done_event(done_data, duration_ms))
 
     except Exception as exc:  # noqa: BLE001
         logger.exception("面试题预测异常 trace_id=%s", trace_id)
-        yield _error_event(stage_key, "internal_error", str(exc))
-
-
-# 用一个内部类避免引入 StageDef 的依赖
-class _MockStage:
-    def __init__(self, key: str, label: str, percent_start: int, percent_end: int) -> None:
-        self.key = key
-        self.label = label
-        self.percent_start = percent_start
-        self.percent_end = percent_end
+        current = get_current_stage()
+        yield _json_line(make_error_event(
+            current.key if current else "unknown",
+            "internal_error",
+            str(exc),
+        ))
+    finally:
+        set_current_stage(None)
 
 
 # ---------------------------------------------------------------------------
@@ -245,7 +294,13 @@ class _MockStage:
 async def predict_interview(req: InterviewPredictRequest):
     """生成面试题(非流式,等待 LLM 完成一次性返回)."""
     try:
-        result = await get_interview_service().predict(req.trace_id)
+        result = await get_interview_service().predict(
+            req.trace_id,
+            focus=req.focus,
+            question_count=req.question_count,
+            difficulty_bias=req.difficulty_bias,
+            force_regenerate=req.force_regenerate,
+        )
     except NotFoundError as exc:
         raise HTTPException(
             status_code=exc.http_status,

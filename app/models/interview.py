@@ -33,6 +33,14 @@ class Difficulty(str, Enum):
     HARD = "hard"
 
 
+class QuestionPriority(str, Enum):
+    """题目优先级."""
+
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
 class InterviewQuestion(BaseModel):
     """单道面试题."""
 
@@ -54,6 +62,26 @@ class InterviewQuestion(BaseModel):
     related_jd_requirement: Optional[str] = Field(
         None,
         description="此题关联的 JD 要求原文",
+    )
+    reason: str = Field(
+        "",
+        description="出题原因:为什么预测这道题,对应哪项简历短板或 JD 要求",
+    )
+    priority: QuestionPriority = Field(
+        QuestionPriority.MEDIUM,
+        description="优先级:high(一级风险点)/medium(二级风险点)/low(三级风险点)",
+    )
+    confidence: float = Field(
+        0.0,
+        description="预测置信度:0-1 之间,越高表示越确信此题会出现",
+    )
+    evidence_from_resume: Optional[str] = Field(
+        None,
+        description="简历中的证据片段,支撑此题预测",
+    )
+    evidence_from_jd: Optional[str] = Field(
+        None,
+        description="JD 中的证据片段,支撑此题预测",
     )
 
 
@@ -88,3 +116,14 @@ DIFFICULTY_LABELS: dict[str, str] = {
     Difficulty.MEDIUM.value: "中等",
     Difficulty.HARD.value: "困难",
 }
+
+# 优先级中文标签
+PRIORITY_LABELS: dict[str, str] = {
+    QuestionPriority.HIGH.value: "高优先",
+    QuestionPriority.MEDIUM.value: "中优先",
+    QuestionPriority.LOW.value: "低优先",
+}
+
+# prompt 版本号(用于缓存 key 与 A/B 对比)
+PROMPT_VERSION = "v2"
+STRATEGY_VERSION = "risk_stratified"
